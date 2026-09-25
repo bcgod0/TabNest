@@ -1,0 +1,817 @@
+// TabNest Popup JS
+// Main controller for all UI views and interactions
+
+import { Storage } from '../utils/storage.js';
+
+// ── State ──────────────────────────────────────────────────────────────────────
+let currentView = 'open';
+let allOpenWindows = [];
+let allSessions = [];
+let allCollections = [];
+let allHistory = [];
+let searchQuery = '';
+let selectedCollectionColor = '#7c3aed';
+let isSearchActive = false;
+let selectMode = false;
+let selectedTabIds = new Set(); // Set of tab IDs (numbers)
+
+// ── DOM References ─────────────────────────────────────────────────────────────
+const $ = (id) => document.getElementById(id);
+
+const searchInput      = $('search-input');
+const searchClear      = $('search-clear');
+const windowsList      = $('windows-list');
+const sessionsList     = $('sessions-list');
+const collectionsList  = $('collections-list');
+const historyList      = $('history-list');
+const openCount        = $('open-count');
+const sessionsCount    = $('sessions-count');
+const collectionsCount = $('collections-count');
+const footerInfo       = $('footer-info');
+const modalOverlay     = $('modal-overlay');
+const toast            = $('toast');
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+async function init() {
+  await loadAll();
+  bindEvents();
+  switchView('open');
+  updateFooter();
+}
+
+async function loadAll() {
+  try {
+    const resp = await chrome.runtime.sendMessage({ type: 'GET_CURRENT_TABS' });
+    allOpenWindows = resp?.windows || [];
+  } catch (e) {
+    allOpenWindows = [];
+  }
+  allSessions    = await Storage.getSessions();
+  allCollections = await Storage.getCollections();
+  allHistory     = await Storage.getHistory();
+  updateCounts();
+}
+
+// ── Event Binding ─────────────────────────────────────────────────────────────
+function bindEvents() {
+  // Nav
+  document.querySelectorAll('.nav-tab').forEach((tab) => {
+    tab.addEventListener('click', () => {
+      const view = tab.dataset.view;
+      switchView(view);
+    });
+  });
+
+  // Search
+  searchInput.addEventListener('input', onSearchInput);
+  searchClear.addEventListener('click', clearSearch);
+
+  // Header buttons
+  $('btn-save-session').addEventListener('click', () => openSaveModal());
+  $('btn-snapshot').addEventListener('click', takeManualSnapshot);
+
+  // Open tabs – selection mode
+  $('btn-select-mode').addEventListener('click', toggleSelectMode);
+  $('btn-cancel-select').addEventListener('click', exitSelectMode);
+  $('btn-select-all').addEventListener('click', selectAllTabs);
+  $('btn-deselect-all').addEventListener('click', deselectAllTabs);
+  $('btn-save-selected').addEventListener('click', () => openSaveModal(null, true));
+
+  // Sessions
+  $('btn-new-session').addEventListener('click', () => openSaveModal());
+
+  // Collections
+  $('btn-new-collection').addEventListener('click', openNewCollectionModal);
+
+  // History
+  $('btn-clear-history').addEventListener('click', clearHistory);
+
+  // Modals
+  $('modal-save-close').addEventListener('click', closeModal);
+  $('modal-save-cancel').addEventListener('click', closeModal);
+  $('modal-save-confirm').addEventListener('click', confirmSaveSession);
+  $('modal-col-close').addEventListener('click', closeModal);
+  $('modal-col-cancel').addEventListener('click', closeModal);
+  $('modal-col-confirm').addEventListener('click', confirmNewCollection);
+  modalOverlay.addEventListener('click', (e) => {
+    if (e.target === modalOverlay) closeModal();
+  });
+
+  // Color picker
+  document.querySelectorAll('.color-swatch').forEach((swatch) => {
+    swatch.addEventListener('click', () => {
+      document.querySelectorAll('.color-swatch').forEach((s) => s.classList.remove('active'));
+      swatch.classList.add('active');
+      selectedCollectionColor = swatch.dataset.color;
+    });
+  });
+
+  // Export / Import
+  $('btn-export').addEventListener('click', exportData);
+  $('btn-import').addEventListener('click', () => $('import-file').click());
+  $('import-file').addEventListener('change', importData);
+
+  // Keyboard
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeModal();
+    if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+      e.preventDefault();
+      searchInput.focus();
+    }
+  });
+}
+
+// ── View Switching ─────────────────────────────────────────────────────────────
+function switchView(view) {
+  currentView = view;
+
+  document.querySelectorAll('.nav-tab').forEach((t) => {
+    t.classList.toggle('active', t.dataset.view === view);
+  });
+
+  document.querySelectorAll('.view').forEach((v) => {
+    v.classList.toggle('active', v.id === `view-${view}`);
+  });
+
+  renderCurrentView();
+}
+
+function renderCurrentView() {
+  if (isSearchActive && searchQuery) {
+    renderSearchResults();
+    return;
+  }
+  switch (currentView) {
+    case 'open':        renderOpenTabs(); break;
+    case 'sessions':    renderSessions(); break;
+    case 'collections': renderCollections(); break;
+    case 'history':     renderHistory(); break;
+  }
+}
+
+// ── Render: Open Tabs ─────────────────────────────────────────────────────────
+function renderOpenTabs() {
+  const totalTabs = allOpenWindows.reduce((acc, w) => acc + (w.tabs?.length || 0), 0);
+  $('open-tabs-title').textContent = `${allOpenWindows.length} Window${allOpenWindows.length !== 1 ? 's' : ''} · ${totalTabs} Tab${totalTabs !== 1 ? 's' : ''}`;
+
+  if (!allOpenWindows.length) {
+    windowsList.innerHTML = '<div class="empty-state"><p>No open windows found</p></div>';
+    return;
+  }
+
+  windowsList.innerHTML = allOpenWindows.map((win, wi) => `
+    <div class="window-group" id="wg-${win.id}">
+      <div class="window-header" data-wid="${win.id}">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/></svg>
+        Window ${wi + 1}${win.focused ? ' <span style="color:#a78bfa;font-weight:400;font-size:10px">(current)</span>' : ''}
+        <span style="margin-left:auto;margin-right:4px;font-size:10px;font-weight:400;color:var(--text-muted)">${win.tabs?.length || 0} tabs</span>
+        <div class="window-header-actions">
+          <button class="session-action-btn restore-btn" data-action="save-window" data-wid="${win.id}" style="display:flex;align-items:center;gap:3px">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/></svg>
+            Save
+          </button>
+        </div>
+        <svg class="window-header-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="window-tab-list">
+        ${(win.tabs || []).map((tab) => renderTabItem(tab, 'open')).join('')}
+      </div>
+    </div>
+  `).join('');
+
+  // Window toggle collapse
+  document.querySelectorAll('.window-header').forEach((hdr) => {
+    hdr.addEventListener('click', (e) => {
+      if (e.target.closest('[data-action]')) return;
+      const wg = hdr.closest('.window-group');
+      wg.classList.toggle('collapsed');
+    });
+  });
+
+  // Tab click: focus tab OR toggle checkbox in select mode
+  document.querySelectorAll('.tab-item[data-tab-id]').forEach((item) => {
+    item.addEventListener('click', (e) => {
+      if (e.target.closest('.tab-action-btn')) return;
+      const tabId = parseInt(item.dataset.tabId);
+      if (selectMode) {
+        toggleTabSelection(tabId, item);
+        return;
+      }
+      const winId = parseInt(item.dataset.winId);
+      chrome.tabs.update(tabId, { active: true });
+      chrome.windows.update(winId, { focused: true });
+      window.close();
+    });
+  });
+
+  // Checkbox click
+  document.querySelectorAll('[data-chk]').forEach((chk) => {
+    chk.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!selectMode) return;
+      const tabId = parseInt(chk.dataset.chk);
+      const item = chk.closest('.tab-item');
+      toggleTabSelection(tabId, item);
+    });
+  });
+
+  // Close tab
+  document.querySelectorAll('[data-action="close-tab"]').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const tabId = parseInt(btn.dataset.tabId);
+      await chrome.tabs.remove(tabId);
+      await loadAll();
+      renderOpenTabs();
+    });
+  });
+
+  // Save window as session
+  document.querySelectorAll('[data-action="save-window"]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const wid = parseInt(btn.dataset.wid);
+      const win = allOpenWindows.find((w) => w.id === wid);
+      if (win) openSaveModal(win.tabs);
+    });
+  });
+}
+
+function renderTabItem(tab, context = 'open') {
+  const domain = getDomain(tab.url);
+  const faviconUrl = tab.favIconUrl && !tab.favIconUrl.startsWith('chrome://') ? tab.favIconUrl : null;
+  const faviconHtml = faviconUrl
+    ? `<img class="tab-favicon" src="${escapeHtml(faviconUrl)}" onerror="this.style.display='none'" />`
+    : `<div class="tab-favicon-fallback"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" opacity="0.5"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></div>`;
+
+  const isChecked = selectedTabIds.has(tab.id);
+  const checkboxHtml = `<div class="tab-checkbox ${isChecked ? 'checked' : ''}" data-chk="${tab.id}"></div>`;
+
+  const actionsHtml = context === 'open' ? `
+    <div class="tab-actions">
+      <button class="tab-action-btn close-btn" data-action="close-tab" data-tab-id="${tab.id}" title="Close Tab">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>` : '';
+
+  return `
+    <div class="tab-item ${tab.active ? 'active-tab' : ''} ${isChecked ? 'selected' : ''}" 
+         data-tab-id="${tab.id || ''}" 
+         data-win-id="${tab.windowId || ''}"
+         title="${escapeHtml(tab.url || '')}">
+      ${checkboxHtml}
+      ${tab.pinned ? '<div class="tab-pin-dot" title="Pinned"></div>' : ''}
+      ${faviconHtml}
+      <div class="tab-info">
+        <div class="tab-title">${escapeHtml(highlightText(tab.title || 'Untitled', searchQuery))}</div>
+        <div class="tab-url">${escapeHtml(domain)}</div>
+      </div>
+      ${actionsHtml}
+    </div>`;
+}
+
+// ── Render: Sessions ──────────────────────────────────────────────────────────
+// Returns the set of URLs currently open across all windows
+function getOpenUrlSet() {
+  const urls = new Set();
+  allOpenWindows.forEach((w) => (w.tabs || []).forEach((t) => t.url && urls.add(t.url)));
+  return urls;
+}
+
+function renderSessions() {
+  const filtered = filterItems(allSessions, (s) => s.name + ' ' + (s.tabs || []).map((t) => t.title + ' ' + t.url).join(' '));
+
+  if (!filtered.length) {
+    sessionsList.innerHTML = `<div class="empty-state" id="sessions-empty">
+      <div class="empty-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.4"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/></svg></div>
+      <p>${searchQuery ? 'No results found' : 'No saved sessions yet'}</p>
+      <span>${searchQuery ? 'Try a different search term' : 'Click "Save Current" to save your open tabs'}</span>
+    </div>`;
+    return;
+  }
+
+  const openUrls = getOpenUrlSet();
+
+  sessionsList.innerHTML = filtered.map((s) => {
+    const favicons = (s.tabs || []).slice(0, 8).map((t) => {
+      const furl = t.favIconUrl && !t.favIconUrl.startsWith('chrome://') ? t.favIconUrl : null;
+      return furl
+        ? `<img class="tab-favicon" src="${escapeHtml(furl)}" onerror="this.style.display='none'" />`
+        : `<div class="tab-favicon-fallback" style="width:12px;height:12px"></div>`;
+    }).join('');
+
+    const col = allCollections.find((c) => c.id === s.collectionId);
+    const colBadge = col ? `<span class="session-badge" style="color:${col.color};background:${col.color}22">${escapeHtml(col.name)}</span>` : '';
+
+    // Check how many of this session's tabs are currently open
+    const sessionUrls = (s.tabs || []).map((t) => t.url).filter(Boolean);
+    const openCount = sessionUrls.filter((u) => openUrls.has(u)).length;
+    const isPartiallyOpen = openCount > 0;
+    const isFullyOpen = openCount === sessionUrls.length && sessionUrls.length > 0;
+
+    const indicator = isPartiallyOpen
+      ? `<span class="session-open-indicator">${isFullyOpen ? 'Open' : `${openCount}/${sessionUrls.length} open`}</span>`
+      : '';
+
+    return `
+      <div class="session-card" data-session-id="${s.id}">
+        <div class="session-card-header">
+          <span class="session-name">${escapeHtml(highlightText(s.name, searchQuery))}</span>
+          <div style="display:flex;gap:4px;align-items:center;flex-shrink:0">
+            ${indicator}
+            ${colBadge}
+          </div>
+        </div>
+        <div class="session-favicon-strip">${favicons}</div>
+        <div class="session-card-footer">
+          <div class="session-meta">
+            <span class="session-badge">${s.tabs?.length || 0} tabs</span>
+            <span class="session-date">${formatDate(s.savedAt)}</span>
+          </div>
+          <div class="session-actions" style="opacity:1">
+            <button class="session-open-btn" data-action="open-session" data-id="${s.id}" title="Open tabs in this window">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              Open
+            </button>
+            <button class="session-close-btn" data-action="close-session" data-id="${s.id}" title="Close open tabs from this session" ${!isPartiallyOpen ? 'disabled' : ''}>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              Close
+            </button>
+            <button class="session-action-btn delete-btn" data-action="delete-session" data-id="${s.id}">Delete</button>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+
+  document.querySelectorAll('[data-action="open-session"]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openSessionInCurrentWindow(btn.dataset.id);
+    });
+  });
+
+  document.querySelectorAll('[data-action="close-session"]').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await closeSessionTabs(btn.dataset.id);
+    });
+  });
+
+  document.querySelectorAll('[data-action="delete-session"]').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await Storage.deleteSession(btn.dataset.id);
+      allSessions = await Storage.getSessions();
+      updateCounts();
+      renderSessions();
+      showToast('Session deleted');
+    });
+  });
+}
+
+// ── Render: Collections ───────────────────────────────────────────────────────
+function renderCollections() {
+  const filtered = filterItems(allCollections, (c) => c.name);
+
+  if (!filtered.length) {
+    collectionsList.innerHTML = `<div class="empty-state">
+      <div class="empty-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.4"><path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/></svg></div>
+      <p>${searchQuery ? 'No results found' : 'No collections yet'}</p>
+      <span>${searchQuery ? 'Try a different search term' : 'Group your sessions by topic or project'}</span>
+    </div>`;
+    return;
+  }
+
+  collectionsList.innerHTML = filtered.map((col) => {
+    const sessionCount = allSessions.filter((s) => s.collectionId === col.id).length;
+    return `
+      <div class="collection-card" data-col-id="${col.id}">
+        <div class="collection-dot" style="background:${col.color}; box-shadow: 0 0 6px ${col.color}88"></div>
+        <div class="collection-info">
+          <div class="collection-name">${escapeHtml(highlightText(col.name, searchQuery))}</div>
+          <div class="collection-meta">${sessionCount} session${sessionCount !== 1 ? 's' : ''} · Created ${formatDate(col.createdAt)}</div>
+        </div>
+        <div class="collection-actions">
+          <button class="session-action-btn delete-btn" data-action="delete-col" data-id="${col.id}">Delete</button>
+        </div>
+      </div>`;
+  }).join('');
+
+  document.querySelectorAll('[data-action="delete-col"]').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await Storage.deleteCollection(btn.dataset.id);
+      allCollections = await Storage.getCollections();
+      updateCounts();
+      renderCollections();
+      showToast('Collection deleted');
+    });
+  });
+}
+
+// ── Render: History ───────────────────────────────────────────────────────────
+function renderHistory() {
+  if (!allHistory.length) {
+    historyList.innerHTML = `<div class="empty-state">
+      <div class="empty-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.4"><polyline points="12 8 12 12 14 14"/><path d="M3.05 11a9 9 0 1 1 .5 4m-.5 5V16h4"/></svg></div>
+      <p>No history yet</p><span>Snapshots appear here automatically</span>
+    </div>`;
+    return;
+  }
+
+  historyList.innerHTML = allHistory.map((snap) => `
+    <div class="history-item" data-snap-id="${snap.id}">
+      <span class="history-trigger-badge ${snap.trigger}">${snap.trigger}</span>
+      <div class="history-info">
+        <div class="history-time">${formatDateTime(snap.timestamp)}</div>
+        <div class="history-stats">${snap.windowCount} window${snap.windowCount !== 1 ? 's' : ''} · ${snap.tabCount} tab${snap.tabCount !== 1 ? 's' : ''}</div>
+      </div>
+      <button class="history-restore-btn" data-action="restore-snap" data-snap-id="${snap.id}">Restore</button>
+    </div>
+  `).join('');
+
+  document.querySelectorAll('[data-action="restore-snap"]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      restoreSnapshot(btn.dataset.snapId);
+    });
+  });
+}
+
+// ── Search ────────────────────────────────────────────────────────────────────
+function onSearchInput(e) {
+  searchQuery = e.target.value.trim().toLowerCase();
+  isSearchActive = searchQuery.length > 0;
+  searchClear.style.display = isSearchActive ? 'block' : 'none';
+  renderCurrentView();
+}
+
+function clearSearch() {
+  searchInput.value = '';
+  searchQuery = '';
+  isSearchActive = false;
+  searchClear.style.display = 'none';
+  renderCurrentView();
+}
+
+function filterItems(items, textFn) {
+  if (!searchQuery) return items;
+  return items.filter((item) => textFn(item).toLowerCase().includes(searchQuery));
+}
+
+function highlightText(text, query) {
+  if (!query || !text) return text || '';
+  const safe = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const safeQ = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return safe.replace(new RegExp(`(${safeQ})`, 'gi'), '<mark>$1</mark>');
+}
+
+// ── Actions: Sessions ─────────────────────────────────────────────────────────
+let pendingSessionTabs = null;
+
+function openSaveModal(tabs = null, fromSelection = false) {
+  if (fromSelection) {
+    // Gather full tab objects for selected IDs
+    const allTabs = allOpenWindows.flatMap((w) => w.tabs || []);
+    pendingSessionTabs = allTabs.filter((t) => selectedTabIds.has(t.id));
+  } else {
+    pendingSessionTabs = tabs;
+  }
+
+  const defaultName = fromSelection && pendingSessionTabs?.length
+    ? `${pendingSessionTabs.length} tabs – ${formatDate(Date.now())}`
+    : `Session – ${formatDate(Date.now())}`;
+  $('session-name-input').value = defaultName;
+
+  // Populate collection dropdown
+  const sel = $('session-collection-select');
+  sel.innerHTML = '<option value="">None</option>' +
+    allCollections.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+
+  showModal('modal-save-session');
+  setTimeout(() => $('session-name-input').select(), 50);
+}
+
+async function confirmSaveSession() {
+  const name = $('session-name-input').value.trim();
+  if (!name) {
+    $('session-name-input').focus();
+    return;
+  }
+
+  let tabs = pendingSessionTabs;
+  if (!tabs) {
+    // Collect all current tabs
+    tabs = allOpenWindows.flatMap((w) => w.tabs || []);
+  }
+
+  const collectionId = $('session-collection-select').value || null;
+  const session = {
+    id: `sess_${Date.now()}`,
+    name,
+    savedAt: Date.now(),
+    collectionId,
+    tabCount: tabs.length,
+    tabs: tabs.map((t) => ({
+      url: t.url,
+      title: t.title,
+      favIconUrl: t.favIconUrl,
+      pinned: t.pinned,
+    })),
+  };
+
+  await Storage.saveSession(session);
+  allSessions = await Storage.getSessions();
+  updateCounts();
+  closeModal();
+  switchView('sessions');
+  showToast(`Session "${name}" saved ✓`);
+}
+
+// Open session tabs in the CURRENT window
+async function openSessionInCurrentWindow(id) {
+  const session = allSessions.find((s) => s.id === id);
+  if (!session?.tabs?.length) return;
+
+  const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const currentWindowId = activeTab?.windowId;
+
+  // Pinned tabs must be created before unpinned ones (Chrome requirement)
+  const sorted = [...session.tabs].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
+  for (const t of sorted) {
+    if (t.url) {
+      await chrome.tabs.create({
+        url: t.url,
+        windowId: currentWindowId,
+        active: false,
+        pinned: !!t.pinned,
+      });
+    }
+  }
+
+  showToast(`Opened ${session.tabs.length} tab${session.tabs.length !== 1 ? 's' : ''} ✓`);
+  // Refresh open tabs state and re-render sessions to update indicators
+  const resp = await chrome.runtime.sendMessage({ type: 'GET_CURRENT_TABS' });
+  allOpenWindows = resp?.windows || [];
+  renderSessions();
+}
+
+// Close any currently-open tabs that belong to a session
+async function closeSessionTabs(id) {
+  const session = allSessions.find((s) => s.id === id);
+  if (!session?.tabs?.length) return;
+
+  const sessionUrls = new Set(session.tabs.map((t) => t.url).filter(Boolean));
+  const allCurrentTabs = allOpenWindows.flatMap((w) => w.tabs || []);
+  const toClose = allCurrentTabs.filter((t) => sessionUrls.has(t.url)).map((t) => t.id);
+
+  if (!toClose.length) {
+    showToast('No open tabs to close');
+    return;
+  }
+
+  await chrome.tabs.remove(toClose);
+  showToast(`Closed ${toClose.length} tab${toClose.length !== 1 ? 's' : ''} ✓`);
+
+  // Refresh
+  const resp = await chrome.runtime.sendMessage({ type: 'GET_CURRENT_TABS' });
+  allOpenWindows = resp?.windows || [];
+  renderSessions();
+}
+
+// ── Actions: Collections ──────────────────────────────────────────────────────
+function openNewCollectionModal() {
+  $('collection-name-input').value = '';
+  selectedCollectionColor = '#7c3aed';
+  document.querySelectorAll('.color-swatch').forEach((s) => {
+    s.classList.toggle('active', s.dataset.color === '#7c3aed');
+  });
+  showModal('modal-new-collection');
+  setTimeout(() => $('collection-name-input').focus(), 50);
+}
+
+async function confirmNewCollection() {
+  const name = $('collection-name-input').value.trim();
+  if (!name) {
+    $('collection-name-input').focus();
+    return;
+  }
+
+  const col = {
+    id: `col_${Date.now()}`,
+    name,
+    color: selectedCollectionColor,
+    createdAt: Date.now(),
+  };
+
+  await Storage.saveCollection(col);
+  allCollections = await Storage.getCollections();
+  updateCounts();
+  closeModal();
+  renderCollections();
+  showToast(`Collection "${name}" created ✓`);
+}
+
+// ── Actions: History ──────────────────────────────────────────────────────────
+async function clearHistory() {
+  await Storage.clearHistory();
+  allHistory = [];
+  renderHistory();
+  showToast('History cleared');
+}
+
+async function restoreSnapshot(snapId) {
+  const snap = allHistory.find((s) => s.id === snapId);
+  if (!snap?.windows) return;
+
+  for (const win of snap.windows) {
+    const urls = (win.tabs || []).map((t) => t.url).filter(Boolean);
+    if (urls.length) {
+      await chrome.windows.create({ url: urls });
+    }
+  }
+
+  showToast('Snapshot restored');
+  window.close();
+}
+
+// ── Selection Mode ────────────────────────────────────────────────────────────
+function toggleSelectMode() {
+  selectMode ? exitSelectMode() : enterSelectMode();
+}
+
+function enterSelectMode() {
+  selectMode = true;
+  selectedTabIds.clear();
+  $('btn-select-mode').classList.add('active');
+  $('selection-bar').classList.add('visible');
+  windowsList.classList.add('select-mode');
+  updateSelectionBar();
+  renderOpenTabs();
+}
+
+function exitSelectMode() {
+  selectMode = false;
+  selectedTabIds.clear();
+  $('btn-select-mode').classList.remove('active');
+  $('selection-bar').classList.remove('visible');
+  windowsList.classList.remove('select-mode');
+  renderOpenTabs();
+}
+
+function toggleTabSelection(tabId, itemEl) {
+  if (selectedTabIds.has(tabId)) {
+    selectedTabIds.delete(tabId);
+    itemEl?.classList.remove('selected');
+    itemEl?.querySelector('[data-chk]')?.classList.remove('checked');
+  } else {
+    selectedTabIds.add(tabId);
+    itemEl?.classList.add('selected');
+    itemEl?.querySelector('[data-chk]')?.classList.add('checked');
+  }
+  updateSelectionBar();
+}
+
+function selectAllTabs() {
+  allOpenWindows.forEach((w) => (w.tabs || []).forEach((t) => selectedTabIds.add(t.id)));
+  renderOpenTabs(); // re-render so checkboxes reflect
+  updateSelectionBar();
+}
+
+function deselectAllTabs() {
+  selectedTabIds.clear();
+  renderOpenTabs();
+  updateSelectionBar();
+}
+
+function updateSelectionBar() {
+  const n = selectedTabIds.size;
+  $('selection-count').textContent = n === 0 ? 'Select tabs to save' : `${n} tab${n !== 1 ? 's' : ''} selected`;
+  const saveBtn = $('btn-save-selected');
+  saveBtn.disabled = n === 0;
+  saveBtn.textContent = n > 0 ? `Save ${n} Tab${n !== 1 ? 's' : ''}` : 'Save Selected';
+}
+
+// ── Actions: Snapshot ─────────────────────────────────────────────────────────
+async function takeManualSnapshot() {
+  const btn = $('btn-snapshot');
+  btn.style.color = '#67e8f9';
+  await chrome.runtime.sendMessage({ type: 'TAKE_SNAPSHOT' });
+  allHistory = await Storage.getHistory();
+  if (currentView === 'history') renderHistory();
+  showToast('Snapshot saved ✓');
+  setTimeout(() => { btn.style.color = ''; }, 1500);
+}
+
+// ── Export / Import ───────────────────────────────────────────────────────────
+async function exportData() {
+  const data = {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    sessions: allSessions,
+    collections: allCollections,
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `tabnest-export-${Date.now()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('Data exported ✓');
+}
+
+async function importData(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+
+    if (data.sessions) {
+      for (const s of data.sessions) {
+        await Storage.saveSession(s);
+      }
+    }
+    if (data.collections) {
+      for (const c of data.collections) {
+        await Storage.saveCollection(c);
+      }
+    }
+
+    await loadAll();
+    renderCurrentView();
+    showToast(`Imported ${data.sessions?.length || 0} sessions ✓`);
+  } catch (err) {
+    showToast('Import failed – invalid file');
+  }
+
+  e.target.value = '';
+}
+
+// ── Modal Helpers ─────────────────────────────────────────────────────────────
+function showModal(id) {
+  document.querySelectorAll('.modal').forEach((m) => {
+    m.style.display = m.id === id ? '' : 'none';
+  });
+  modalOverlay.classList.add('open');
+}
+
+function closeModal() {
+  modalOverlay.classList.remove('open');
+  pendingSessionTabs = null;
+}
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+let toastTimeout;
+function showToast(msg) {
+  toast.textContent = msg;
+  toast.classList.add('show');
+  clearTimeout(toastTimeout);
+  toastTimeout = setTimeout(() => toast.classList.remove('show'), 2500);
+}
+
+// ── Utilities ─────────────────────────────────────────────────────────────────
+function updateCounts() {
+  const totalTabs = allOpenWindows.reduce((acc, w) => acc + (w.tabs?.length || 0), 0);
+  openCount.textContent       = totalTabs;
+  sessionsCount.textContent   = allSessions.length;
+  collectionsCount.textContent = allCollections.length;
+}
+
+function updateFooter() {
+  const totalSavedTabs = allSessions.reduce((acc, s) => acc + (s.tabs?.length || 0), 0);
+  footerInfo.textContent = `${allSessions.length} sessions · ${totalSavedTabs} tabs saved`;
+}
+
+function getDomain(url) {
+  try {
+    return new URL(url).hostname.replace('www.', '');
+  } catch {
+    return url || '';
+  }
+}
+
+function formatDate(ts) {
+  if (!ts) return '';
+  return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function formatDateTime(ts) {
+  if (!ts) return '';
+  return new Date(ts).toLocaleString(undefined, {
+    month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  });
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  // If contains mark tags from highlighting, return raw (already processed)
+  if (str.includes('<mark>')) return str;
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Start ─────────────────────────────────────────────────────────────────────
+init();
