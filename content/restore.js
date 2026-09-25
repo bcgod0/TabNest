@@ -4,13 +4,16 @@
 
 (async () => {
   try {
-    const pageKey = location.href.split('#')[0];
+    const rawKey = location.href.split('#')[0];
+    const normKey = rawKey.replace(/\/+$/, '');
     const { tabNestRestores = {} } = await chrome.storage.local.get('tabNestRestores');
-    const state = tabNestRestores[pageKey];
+    const state = tabNestRestores[normKey] || tabNestRestores[rawKey] || tabNestRestores[location.href];
     if (!state) return;
 
-    // Clean up immediately so it doesn't fire again on refresh
-    delete tabNestRestores[pageKey];
+    // Clean up so it doesn't fire again on manual refresh
+    delete tabNestRestores[normKey];
+    delete tabNestRestores[rawKey];
+    delete tabNestRestores[location.href];
     await chrome.storage.local.set({ tabNestRestores });
 
     // ── Restore video playback time ──────────────────────────────────────────
@@ -19,7 +22,6 @@
         const video = document.querySelector('video');
         if (video) {
           const doSeek = () => {
-            // Only seek if the saved time is meaningfully ahead of current pos
             if (Math.abs(video.currentTime - state.videoTime) > 2) {
               video.currentTime = state.videoTime;
             }
@@ -29,8 +31,9 @@
           } else {
             video.addEventListener('loadedmetadata', doSeek, { once: true });
           }
+          video.addEventListener('play', doSeek, { once: true });
+          video.addEventListener('playing', doSeek, { once: true });
         } else if (attemptsLeft > 0) {
-          // Video element may not exist yet (SPAs, lazy loading)
           setTimeout(() => seekVideo(attemptsLeft - 1), 300);
         }
       };
@@ -38,16 +41,23 @@
     }
 
     // ── Restore scroll position ──────────────────────────────────────────────
-    // Only restore if scroll is significant (avoid minor scrolls)
-    if (state.scrollY && state.scrollY > 200) {
-      // Small delay so the page layout has time to settle
-      setTimeout(() => {
-        window.scrollTo({ top: state.scrollY, left: state.scrollX || 0, behavior: 'instant' });
-      }, 400);
+    if ((state.scrollY && state.scrollY > 20) || (state.scrollX && state.scrollX > 20)) {
+      const targetY = state.scrollY || 0;
+      const targetX = state.scrollX || 0;
+      const doScroll = (attemptsLeft = 15) => {
+        window.scrollTo({ top: targetY, left: targetX, behavior: 'instant' });
+        // If document height is still expanding (lazy load / dynamic content), retry briefly
+        if (
+          attemptsLeft > 0 &&
+          Math.abs(window.scrollY - targetY) > 30 &&
+          document.documentElement.scrollHeight < targetY + window.innerHeight
+        ) {
+          setTimeout(() => doScroll(attemptsLeft - 1), 250);
+        }
+      };
+      setTimeout(() => doScroll(), 250);
     }
-
   } catch (err) {
-    // Silently fail – never break the page
     console.debug('[TabNest restore]', err);
   }
 })();

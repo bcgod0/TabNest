@@ -7,10 +7,9 @@ import { Storage } from '../utils/storage.js';
 let currentView = 'open';
 let allOpenWindows = [];
 let allSessions = [];
-let allCollections = [];
 let allHistory = [];
+let sessionOpenTabs = {}; // Map of sessionId -> array of { tabId, tabIndex, originalUrl }
 let searchQuery = '';
-let selectedCollectionColor = '#7c3aed';
 let isSearchActive = false;
 let selectMode = false;
 let selectedTabIds = new Set(); // Set of tab IDs (numbers)
@@ -22,11 +21,9 @@ const searchInput      = $('search-input');
 const searchClear      = $('search-clear');
 const windowsList      = $('windows-list');
 const sessionsList     = $('sessions-list');
-const collectionsList  = $('collections-list');
 const historyList      = $('history-list');
 const openCount        = $('open-count');
 const sessionsCount    = $('sessions-count');
-const collectionsCount = $('collections-count');
 const footerInfo       = $('footer-info');
 const modalOverlay     = $('modal-overlay');
 const toast            = $('toast');
@@ -47,8 +44,9 @@ async function loadAll() {
     allOpenWindows = [];
   }
   allSessions    = await Storage.getSessions();
-  allCollections = await Storage.getCollections();
   allHistory     = await Storage.getHistory();
+  const stored   = await chrome.storage.local.get('sessionOpenTabs');
+  sessionOpenTabs = stored?.sessionOpenTabs || {};
   updateCounts();
 }
 
@@ -67,7 +65,6 @@ function bindEvents() {
   searchClear.addEventListener('click', clearSearch);
 
   // Header buttons
-  $('btn-save-session').addEventListener('click', () => openSaveModal());
   $('btn-snapshot').addEventListener('click', takeManualSnapshot);
 
   // Open tabs – selection mode
@@ -80,9 +77,6 @@ function bindEvents() {
   // Sessions
   $('btn-new-session').addEventListener('click', () => openSaveModal());
 
-  // Collections
-  $('btn-new-collection').addEventListener('click', openNewCollectionModal);
-
   // History
   $('btn-clear-history').addEventListener('click', clearHistory);
 
@@ -90,20 +84,8 @@ function bindEvents() {
   $('modal-save-close').addEventListener('click', closeModal);
   $('modal-save-cancel').addEventListener('click', closeModal);
   $('modal-save-confirm').addEventListener('click', confirmSaveSession);
-  $('modal-col-close').addEventListener('click', closeModal);
-  $('modal-col-cancel').addEventListener('click', closeModal);
-  $('modal-col-confirm').addEventListener('click', confirmNewCollection);
   modalOverlay.addEventListener('click', (e) => {
     if (e.target === modalOverlay) closeModal();
-  });
-
-  // Color picker
-  document.querySelectorAll('.color-swatch').forEach((swatch) => {
-    swatch.addEventListener('click', () => {
-      document.querySelectorAll('.color-swatch').forEach((s) => s.classList.remove('active'));
-      swatch.classList.add('active');
-      selectedCollectionColor = swatch.dataset.color;
-    });
   });
 
   // Export / Import
@@ -144,7 +126,6 @@ function renderCurrentView() {
   switch (currentView) {
     case 'open':        renderOpenTabs(); break;
     case 'sessions':    renderSessions(); break;
-    case 'collections': renderCollections(); break;
     case 'history':     renderHistory(); break;
   }
 }
@@ -300,14 +281,17 @@ function renderSessions() {
         : `<div class="tab-favicon-fallback" style="width:12px;height:12px"></div>`;
     }).join('');
 
-    const col = allCollections.find((c) => c.id === s.collectionId);
-    const colBadge = col ? `<span class="session-badge" style="color:${col.color};background:${col.color}22">${escapeHtml(col.name)}</span>` : '';
-
     // Check how many of this session's tabs are currently open
+    const currentOpenTabIdSet = new Set(allOpenWindows.flatMap((w) => w.tabs || []).map((t) => t.id));
+    const trackedOpenCount = (sessionOpenTabs[s.id] || [])
+      .map((item) => (typeof item === 'number' ? item : item.tabId))
+      .filter((tabId) => currentOpenTabIdSet.has(tabId)).length;
+
     const sessionUrls = (s.tabs || []).map((t) => t.url).filter(Boolean);
-    const openCount = sessionUrls.filter((u) => openUrls.has(u)).length;
+    const urlMatchCount = sessionUrls.filter((u) => openUrls.has(u)).length;
+    const openCount = Math.max(trackedOpenCount, urlMatchCount);
     const isPartiallyOpen = openCount > 0;
-    const isFullyOpen = openCount === sessionUrls.length && sessionUrls.length > 0;
+    const isFullyOpen = openCount >= (s.tabs?.length || 0) && (s.tabs?.length || 0) > 0;
 
     const indicator = isPartiallyOpen
       ? `<span class="session-open-indicator">${isFullyOpen ? 'Open' : `${openCount}/${sessionUrls.length} open`}</span>`
@@ -319,7 +303,6 @@ function renderSessions() {
           <span class="session-name">${escapeHtml(highlightText(s.name, searchQuery))}</span>
           <div style="display:flex;gap:4px;align-items:center;flex-shrink:0">
             ${indicator}
-            ${colBadge}
           </div>
         </div>
         <div class="session-favicon-strip">${favicons}</div>
@@ -369,45 +352,6 @@ function renderSessions() {
   });
 }
 
-// ── Render: Collections ───────────────────────────────────────────────────────
-function renderCollections() {
-  const filtered = filterItems(allCollections, (c) => c.name);
-
-  if (!filtered.length) {
-    collectionsList.innerHTML = `<div class="empty-state">
-      <div class="empty-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.4"><path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/></svg></div>
-      <p>${searchQuery ? 'No results found' : 'No collections yet'}</p>
-      <span>${searchQuery ? 'Try a different search term' : 'Group your sessions by topic or project'}</span>
-    </div>`;
-    return;
-  }
-
-  collectionsList.innerHTML = filtered.map((col) => {
-    const sessionCount = allSessions.filter((s) => s.collectionId === col.id).length;
-    return `
-      <div class="collection-card" data-col-id="${col.id}">
-        <div class="collection-dot" style="background:${col.color}; box-shadow: 0 0 6px ${col.color}88"></div>
-        <div class="collection-info">
-          <div class="collection-name">${escapeHtml(highlightText(col.name, searchQuery))}</div>
-          <div class="collection-meta">${sessionCount} session${sessionCount !== 1 ? 's' : ''} · Created ${formatDate(col.createdAt)}</div>
-        </div>
-        <div class="collection-actions">
-          <button class="session-action-btn delete-btn" data-action="delete-col" data-id="${col.id}">Delete</button>
-        </div>
-      </div>`;
-  }).join('');
-
-  document.querySelectorAll('[data-action="delete-col"]').forEach((btn) => {
-    btn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      await Storage.deleteCollection(btn.dataset.id);
-      allCollections = await Storage.getCollections();
-      updateCounts();
-      renderCollections();
-      showToast('Collection deleted');
-    });
-  });
-}
 
 // ── Render: History ───────────────────────────────────────────────────────────
 function renderHistory() {
@@ -483,11 +427,6 @@ function openSaveModal(tabs = null, fromSelection = false) {
     : `Session – ${formatDate(Date.now())}`;
   $('session-name-input').value = defaultName;
 
-  // Populate collection dropdown
-  const sel = $('session-collection-select');
-  sel.innerHTML = '<option value="">None</option>' +
-    allCollections.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
-
   showModal('modal-save-session');
   setTimeout(() => $('session-name-input').select(), 50);
 }
@@ -505,12 +444,10 @@ async function confirmSaveSession() {
     tabs = allOpenWindows.flatMap((w) => w.tabs || []);
   }
 
-  const collectionId = $('session-collection-select').value || null;
   const session = {
     id: `sess_${Date.now()}`,
     name,
     savedAt: Date.now(),
-    collectionId,
     tabCount: tabs.length,
     tabs: tabs.map((t) => ({
       url: t.url,
@@ -536,81 +473,200 @@ async function openSessionInCurrentWindow(id) {
   const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
   const currentWindowId = activeTab?.windowId;
 
+  // Pre-seed tabNestRestores with saved scroll/video state
+  const { tabNestRestores = {} } = await chrome.storage.local.get('tabNestRestores');
+  for (const t of session.tabs) {
+    if (t.url && (t.scrollY > 20 || t.videoTime > 1)) {
+      const rawKey = t.url.split('#')[0];
+      const normKey = rawKey.replace(/\/+$/, '');
+      const stateObj = {
+        scrollX: t.scrollX || 0,
+        scrollY: t.scrollY || 0,
+        videoTime: t.videoTime || 0,
+        savedAt: Date.now(),
+      };
+      tabNestRestores[rawKey] = stateObj;
+      tabNestRestores[normKey] = stateObj;
+    }
+  }
+  await chrome.storage.local.set({ tabNestRestores });
+
   // Pinned tabs must be created before unpinned ones (Chrome requirement)
-  const sorted = [...session.tabs].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
-  for (const t of sorted) {
-    if (t.url) {
-      await chrome.tabs.create({
-        url: t.url,
+  const sortedWithIndex = session.tabs
+    .map((tab, index) => ({ tab, index }))
+    .sort((a, b) => (b.tab.pinned ? 1 : 0) - (a.tab.pinned ? 1 : 0));
+
+  const trackedTabs = [];
+  for (const item of sortedWithIndex) {
+    if (item.tab.url) {
+      const createdTab = await chrome.tabs.create({
+        url: item.tab.url,
         windowId: currentWindowId,
         active: false,
-        pinned: !!t.pinned,
+        pinned: !!item.tab.pinned,
+      });
+      trackedTabs.push({
+        tabId: createdTab.id,
+        tabIndex: item.index,
+        originalUrl: item.tab.url,
       });
     }
   }
 
+  // Update sessionOpenTabs in storage
+  const stored = await chrome.storage.local.get('sessionOpenTabs');
+  const currentSessionOpenTabs = stored.sessionOpenTabs || {};
+  currentSessionOpenTabs[id] = trackedTabs;
+  await chrome.storage.local.set({ sessionOpenTabs: currentSessionOpenTabs });
+  sessionOpenTabs = currentSessionOpenTabs;
+
   showToast(`Opened ${session.tabs.length} tab${session.tabs.length !== 1 ? 's' : ''} ✓`);
-  // Refresh open tabs state and re-render sessions to update indicators
-  const resp = await chrome.runtime.sendMessage({ type: 'GET_CURRENT_TABS' });
-  allOpenWindows = resp?.windows || [];
+  await loadAll();
   renderSessions();
 }
 
-// Close any currently-open tabs that belong to a session
+// Close any currently-open tabs that belong to a session and save their progress
 async function closeSessionTabs(id) {
   const session = allSessions.find((s) => s.id === id);
   if (!session?.tabs?.length) return;
 
-  const sessionUrls = new Set(session.tabs.map((t) => t.url).filter(Boolean));
-  const allCurrentTabs = allOpenWindows.flatMap((w) => w.tabs || []);
-  const toClose = allCurrentTabs.filter((t) => sessionUrls.has(t.url)).map((t) => t.id);
+  // 1. Get tracked tabs from storage
+  const stored = await chrome.storage.local.get('sessionOpenTabs');
+  const allTracked = stored.sessionOpenTabs || {};
+  const trackedList = allTracked[id] || [];
 
-  if (!toClose.length) {
+  // 2. Fetch fresh list of all current tabs across all windows
+  const resp = await chrome.runtime.sendMessage({ type: 'GET_CURRENT_TABS' });
+  const openWindows = resp?.windows || allOpenWindows || [];
+  const allCurrentTabs = openWindows.flatMap((w) => w.tabs || []);
+  const currentTabsMap = new Map(allCurrentTabs.map((t) => [t.id, t]));
+
+  // 3. Determine which tabs belong to this session
+  const matchedTabs = [];
+  const usedTabIds = new Set();
+  const matchedIndices = new Set();
+
+  for (const item of trackedList) {
+    const tabId = typeof item === 'number' ? item : item.tabId;
+    const tabIndex = typeof item === 'object' && item.tabIndex !== undefined ? item.tabIndex : -1;
+    if (currentTabsMap.has(tabId) && !usedTabIds.has(tabId)) {
+      matchedTabs.push({
+        tab: currentTabsMap.get(tabId),
+        tabIndex: tabIndex >= 0 && tabIndex < session.tabs.length ? tabIndex : null,
+      });
+      usedTabIds.add(tabId);
+      if (tabIndex >= 0) matchedIndices.add(tabIndex);
+    }
+  }
+
+  // Fallback: match by URL for any tabs not found by ID tracking
+  const sessionUrls = session.tabs.map((t, i) => ({ url: t.url, index: i })).filter((x) => x.url);
+  for (const sUrl of sessionUrls) {
+    if (matchedIndices.has(sUrl.index)) continue;
+    const foundTab = allCurrentTabs.find((t) => t.url === sUrl.url && !usedTabIds.has(t.id));
+    if (foundTab) {
+      matchedTabs.push({ tab: foundTab, tabIndex: sUrl.index });
+      usedTabIds.add(foundTab.id);
+      matchedIndices.add(sUrl.index);
+    }
+  }
+
+  if (!matchedTabs.length) {
     showToast('No open tabs to close');
     return;
   }
 
-  await chrome.tabs.remove(toClose);
-  showToast(`Closed ${toClose.length} tab${toClose.length !== 1 ? 's' : ''} ✓`);
+  // 4. Capture live state (scroll, video timestamp, updated URL & title) for each tab
+  const { tabNestRestores = {} } = await chrome.storage.local.get('tabNestRestores');
+  let hasSessionUpdates = false;
 
-  // Refresh
-  const resp = await chrome.runtime.sendMessage({ type: 'GET_CURRENT_TABS' });
-  allOpenWindows = resp?.windows || [];
+  for (const { tab, tabIndex } of matchedTabs) {
+    let pageState = { scrollX: 0, scrollY: 0, videoTime: 0, href: tab.url };
+
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => {
+          const video = document.querySelector('video');
+          return {
+            scrollX: Math.round(window.scrollX || window.pageXOffset || 0),
+            scrollY: Math.round(window.scrollY || window.pageYOffset || 0),
+            videoTime: video && !isNaN(video.currentTime) ? Math.round(video.currentTime) : 0,
+            href: window.location.href,
+          };
+        },
+      });
+      if (results?.[0]?.result) {
+        pageState = results[0].result;
+      }
+    } catch (e) {
+      // Non-scriptable tabs (e.g. chrome://) will silently skip
+    }
+
+    let freshTab = tab;
+    try {
+      freshTab = await chrome.tabs.get(tab.id);
+    } catch (e) {}
+
+    const finalUrl = pageState.href || freshTab.url || tab.url;
+    const finalTitle = freshTab.title || tab.title || '';
+    const finalPinned = freshTab.pinned !== undefined ? freshTab.pinned : tab.pinned;
+    const finalFavIcon = freshTab.favIconUrl || tab.favIconUrl || '';
+
+    // Cache in tabNestRestores
+    if (finalUrl && (pageState.scrollY > 20 || pageState.videoTime > 1)) {
+      const rawKey = finalUrl.split('#')[0];
+      const normKey = rawKey.replace(/\/+$/, '');
+      const stateObj = {
+        scrollX: pageState.scrollX,
+        scrollY: pageState.scrollY,
+        videoTime: pageState.videoTime,
+        savedAt: Date.now(),
+      };
+      tabNestRestores[rawKey] = stateObj;
+      tabNestRestores[normKey] = stateObj;
+    }
+
+    // Update session tab record so reopening opens latest URL, pinned state & scroll
+    if (tabIndex !== null && session.tabs[tabIndex]) {
+      session.tabs[tabIndex].url = finalUrl;
+      session.tabs[tabIndex].title = finalTitle;
+      session.tabs[tabIndex].pinned = finalPinned;
+      session.tabs[tabIndex].favIconUrl = finalFavIcon;
+      session.tabs[tabIndex].scrollX = pageState.scrollX;
+      session.tabs[tabIndex].scrollY = pageState.scrollY;
+      session.tabs[tabIndex].videoTime = pageState.videoTime;
+      hasSessionUpdates = true;
+    }
+  }
+
+  // 5. Persist restore state & session updates
+  await chrome.storage.local.set({ tabNestRestores });
+
+  if (hasSessionUpdates) {
+    session.updatedAt = Date.now();
+    await Storage.saveSession(session);
+    allSessions = await Storage.getSessions();
+  }
+
+  // 6. Clean up closed tabs from sessionOpenTabs
+  allTracked[id] = (allTracked[id] || []).filter((item) => {
+    const tabId = typeof item === 'number' ? item : item.tabId;
+    return !usedTabIds.has(tabId);
+  });
+  await chrome.storage.local.set({ sessionOpenTabs: allTracked });
+  sessionOpenTabs = allTracked;
+
+  // 7. Remove tabs from Chrome
+  const tabIdsToClose = Array.from(usedTabIds);
+  await chrome.tabs.remove(tabIdsToClose);
+  showToast(`Closed ${tabIdsToClose.length} tab${tabIdsToClose.length !== 1 ? 's' : ''} & saved progress ✓`);
+
+  // 8. Refresh open tabs state and re-render
+  await loadAll();
   renderSessions();
 }
 
-// ── Actions: Collections ──────────────────────────────────────────────────────
-function openNewCollectionModal() {
-  $('collection-name-input').value = '';
-  selectedCollectionColor = '#7c3aed';
-  document.querySelectorAll('.color-swatch').forEach((s) => {
-    s.classList.toggle('active', s.dataset.color === '#7c3aed');
-  });
-  showModal('modal-new-collection');
-  setTimeout(() => $('collection-name-input').focus(), 50);
-}
-
-async function confirmNewCollection() {
-  const name = $('collection-name-input').value.trim();
-  if (!name) {
-    $('collection-name-input').focus();
-    return;
-  }
-
-  const col = {
-    id: `col_${Date.now()}`,
-    name,
-    color: selectedCollectionColor,
-    createdAt: Date.now(),
-  };
-
-  await Storage.saveCollection(col);
-  allCollections = await Storage.getCollections();
-  updateCounts();
-  closeModal();
-  renderCollections();
-  showToast(`Collection "${name}" created ✓`);
-}
 
 // ── Actions: History ──────────────────────────────────────────────────────────
 async function clearHistory() {
@@ -709,7 +765,6 @@ async function exportData() {
     version: 1,
     exportedAt: new Date().toISOString(),
     sessions: allSessions,
-    collections: allCollections,
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url  = URL.createObjectURL(blob);
@@ -732,11 +787,6 @@ async function importData(e) {
     if (data.sessions) {
       for (const s of data.sessions) {
         await Storage.saveSession(s);
-      }
-    }
-    if (data.collections) {
-      for (const c of data.collections) {
-        await Storage.saveCollection(c);
       }
     }
 
@@ -775,9 +825,8 @@ function showToast(msg) {
 // ── Utilities ─────────────────────────────────────────────────────────────────
 function updateCounts() {
   const totalTabs = allOpenWindows.reduce((acc, w) => acc + (w.tabs?.length || 0), 0);
-  openCount.textContent       = totalTabs;
-  sessionsCount.textContent   = allSessions.length;
-  collectionsCount.textContent = allCollections.length;
+  openCount.textContent     = totalTabs;
+  sessionsCount.textContent = allSessions.length;
 }
 
 function updateFooter() {

@@ -1,49 +1,44 @@
 // TabNest Background Service Worker
-// Handles auto-snapshots, crash recovery, and alarm-based periodic saves
+// Manages manual snapshots, crash recovery, session tab tracking, and restore state
 
-const SNAPSHOT_ALARM = 'tabnest-snapshot';
-const SNAPSHOT_INTERVAL_MINUTES = 5;
 const MAX_HISTORY_ENTRIES = 50;
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 chrome.runtime.onInstalled.addListener(async () => {
   console.log('[TabNest] Extension installed/updated');
-  await setupAlarms();
-  await takeSnapshot('install');
+  await chrome.alarms.clearAll();
 });
 
 chrome.runtime.onStartup.addListener(async () => {
   console.log('[TabNest] Browser started');
-  await setupAlarms();
-  await takeSnapshot('startup');
+  await chrome.alarms.clearAll();
 });
 
-async function setupAlarms() {
-  await chrome.alarms.clear(SNAPSHOT_ALARM);
-  chrome.alarms.create(SNAPSHOT_ALARM, {
-    periodInMinutes: SNAPSHOT_INTERVAL_MINUTES,
-  });
-}
-
-// ── Alarm handler ─────────────────────────────────────────────────────────────
-chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm.name === SNAPSHOT_ALARM) {
-    await takeSnapshot('auto');
-  }
+// ── Tab event listeners ───────────────────────────────────────────────────────
+chrome.tabs.onRemoved.addListener((tabId) => {
+  cleanUpSessionOpenTabs(tabId);
 });
 
-// ── Tab / window event listeners ──────────────────────────────────────────────
-chrome.tabs.onRemoved.addListener(() => scheduleSnapshot());
-chrome.windows.onRemoved.addListener(() => scheduleSnapshot());
-
-let snapshotTimeout = null;
-function scheduleSnapshot() {
-  if (snapshotTimeout) clearTimeout(snapshotTimeout);
-  snapshotTimeout = setTimeout(() => takeSnapshot('event'), 2000);
+async function cleanUpSessionOpenTabs(closedTabId) {
+  try {
+    const { sessionOpenTabs = {} } = await chrome.storage.local.get('sessionOpenTabs');
+    let changed = false;
+    for (const sid of Object.keys(sessionOpenTabs)) {
+      const prevLen = sessionOpenTabs[sid].length;
+      sessionOpenTabs[sid] = sessionOpenTabs[sid].filter((item) => {
+        const id = typeof item === 'number' ? item : item.tabId;
+        return id !== closedTabId;
+      });
+      if (sessionOpenTabs[sid].length !== prevLen) changed = true;
+    }
+    if (changed) {
+      await chrome.storage.local.set({ sessionOpenTabs });
+    }
+  } catch (e) {}
 }
 
-// ── Core snapshot logic ───────────────────────────────────────────────────────
-async function takeSnapshot(trigger = 'auto') {
+// ── Core snapshot logic (Manual only) ─────────────────────────────────────────
+async function takeSnapshot(trigger = 'manual') {
   try {
     const windows = await chrome.windows.getAll({ populate: true });
     const snapshot = {
@@ -100,9 +95,10 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (changeInfo.status !== 'complete' || !tab.url) return;
 
   try {
-    const pageKey = tab.url.split('#')[0];
+    const rawKey = tab.url.split('#')[0];
+    const normKey = rawKey.replace(/\/+$/, '');
     const { tabNestRestores = {} } = await chrome.storage.local.get('tabNestRestores');
-    if (!tabNestRestores[pageKey]) return;
+    if (!tabNestRestores[rawKey] && !tabNestRestores[normKey] && !tabNestRestores[tab.url]) return;
 
     await chrome.scripting.executeScript({
       target: { tabId },
