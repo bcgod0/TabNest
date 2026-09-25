@@ -9,16 +9,12 @@ let allOpenWindows = [];
 let allSessions = [];
 let allHistory = [];
 let sessionOpenTabs = {}; // Map of sessionId -> array of { tabId, tabIndex, originalUrl }
-let searchQuery = '';
-let isSearchActive = false;
 let selectMode = false;
 let selectedTabIds = new Set(); // Set of tab IDs (numbers)
 
 // ── DOM References ─────────────────────────────────────────────────────────────
 const $ = (id) => document.getElementById(id);
 
-const searchInput      = $('search-input');
-const searchClear      = $('search-clear');
 const windowsList      = $('windows-list');
 const sessionsList     = $('sessions-list');
 const historyList      = $('history-list');
@@ -60,9 +56,6 @@ function bindEvents() {
     });
   });
 
-  // Search
-  searchInput.addEventListener('input', onSearchInput);
-  searchClear.addEventListener('click', clearSearch);
 
   // Header buttons
   $('btn-snapshot').addEventListener('click', takeManualSnapshot);
@@ -96,10 +89,6 @@ function bindEvents() {
   // Keyboard
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closeModal();
-    if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
-      e.preventDefault();
-      searchInput.focus();
-    }
   });
 }
 
@@ -119,10 +108,6 @@ function switchView(view) {
 }
 
 function renderCurrentView() {
-  if (isSearchActive && searchQuery) {
-    renderSearchResults();
-    return;
-  }
   switch (currentView) {
     case 'open':        renderOpenTabs(); break;
     case 'sessions':    renderSessions(); break;
@@ -145,13 +130,7 @@ function renderOpenTabs() {
       <div class="window-header" data-wid="${win.id}">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/></svg>
         Window ${wi + 1}${win.focused ? ' <span style="color:#a78bfa;font-weight:400;font-size:10px">(current)</span>' : ''}
-        <span style="margin-left:auto;margin-right:4px;font-size:10px;font-weight:400;color:var(--text-muted)">${win.tabs?.length || 0} tabs</span>
-        <div class="window-header-actions">
-          <button class="session-action-btn restore-btn" data-action="save-window" data-wid="${win.id}" style="display:flex;align-items:center;gap:3px">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/></svg>
-            Save
-          </button>
-        </div>
+        <span style="margin-left:auto;margin-right:6px;font-size:10px;font-weight:500;color:var(--text-muted)">${win.tabs?.length || 0} tabs</span>
         <svg class="window-header-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
       </div>
       <div class="window-tab-list">
@@ -207,15 +186,6 @@ function renderOpenTabs() {
     });
   });
 
-  // Save window as session
-  document.querySelectorAll('[data-action="save-window"]').forEach((btn) => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const wid = parseInt(btn.dataset.wid);
-      const win = allOpenWindows.find((w) => w.id === wid);
-      if (win) openSaveModal(win.tabs);
-    });
-  });
 }
 
 function renderTabItem(tab, context = 'open') {
@@ -244,7 +214,7 @@ function renderTabItem(tab, context = 'open') {
       ${tab.pinned ? '<div class="tab-pin-dot" title="Pinned"></div>' : ''}
       ${faviconHtml}
       <div class="tab-info">
-        <div class="tab-title">${escapeHtml(highlightText(tab.title || 'Untitled', searchQuery))}</div>
+        <div class="tab-title">${escapeHtml(tab.title || 'Untitled')}</div>
         <div class="tab-url">${escapeHtml(domain)}</div>
       </div>
       ${actionsHtml}
@@ -260,20 +230,18 @@ function getOpenUrlSet() {
 }
 
 function renderSessions() {
-  const filtered = filterItems(allSessions, (s) => s.name + ' ' + (s.tabs || []).map((t) => t.title + ' ' + t.url).join(' '));
-
-  if (!filtered.length) {
+  if (!allSessions.length) {
     sessionsList.innerHTML = `<div class="empty-state" id="sessions-empty">
       <div class="empty-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.4"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/></svg></div>
-      <p>${searchQuery ? 'No results found' : 'No saved sessions yet'}</p>
-      <span>${searchQuery ? 'Try a different search term' : 'Click "Save Current" to save your open tabs'}</span>
+      <p>No saved sessions yet</p>
+      <span>Click "Save Current" to save your open tabs</span>
     </div>`;
     return;
   }
 
   const openUrls = getOpenUrlSet();
 
-  sessionsList.innerHTML = filtered.map((s) => {
+  sessionsList.innerHTML = allSessions.map((s) => {
     const favicons = (s.tabs || []).slice(0, 8).map((t) => {
       const furl = t.favIconUrl && !t.favIconUrl.startsWith('chrome://') ? t.favIconUrl : null;
       return furl
@@ -300,7 +268,7 @@ function renderSessions() {
     return `
       <div class="session-card" data-session-id="${s.id}">
         <div class="session-card-header">
-          <span class="session-name">${escapeHtml(highlightText(s.name, searchQuery))}</span>
+          <span class="session-name">${escapeHtml(s.name)}</span>
           <div style="display:flex;gap:4px;align-items:center;flex-shrink:0">
             ${indicator}
           </div>
@@ -382,33 +350,6 @@ function renderHistory() {
   });
 }
 
-// ── Search ────────────────────────────────────────────────────────────────────
-function onSearchInput(e) {
-  searchQuery = e.target.value.trim().toLowerCase();
-  isSearchActive = searchQuery.length > 0;
-  searchClear.style.display = isSearchActive ? 'block' : 'none';
-  renderCurrentView();
-}
-
-function clearSearch() {
-  searchInput.value = '';
-  searchQuery = '';
-  isSearchActive = false;
-  searchClear.style.display = 'none';
-  renderCurrentView();
-}
-
-function filterItems(items, textFn) {
-  if (!searchQuery) return items;
-  return items.filter((item) => textFn(item).toLowerCase().includes(searchQuery));
-}
-
-function highlightText(text, query) {
-  if (!query || !text) return text || '';
-  const safe = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  const safeQ = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return safe.replace(new RegExp(`(${safeQ})`, 'gi'), '<mark>$1</mark>');
-}
 
 // ── Actions: Sessions ─────────────────────────────────────────────────────────
 let pendingSessionTabs = null;
