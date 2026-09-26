@@ -73,6 +73,20 @@
           </div>
         </div>
 
+        <!-- Duplicate tabs detector banner -->
+        <div class="duplicates-banner" id="duplicates-banner" style="display: none;">
+          <div class="dup-banner-info">
+            <div class="dup-icon-badge">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            </div>
+            <span class="dup-text" id="dup-banner-text">0 duplicates</span>
+          </div>
+          <button class="btn-clean-duplicates" id="btn-clean-duplicates" title="Close all duplicate tabs and keep original tabs">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            Close Duplicates
+          </button>
+        </div>
+
         <!-- Floating selection bar (shown in select mode) -->
         <div class="selection-bar" id="selection-bar">
           <span class="selection-count" id="selection-count">0 selected</span>
@@ -103,6 +117,24 @@
             <button class="pill-btn accent" id="btn-new-session">+ Save Current</button>
           </div>
         </div>
+
+        <!-- Duplicate tabs detector banner in Sessions view -->
+        <div class="duplicates-banner" id="duplicates-banner-sessions" style="display: none;">
+          <div class="dup-banner-info">
+            <div class="dup-icon-badge">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            </div>
+            <span class="dup-text" id="dup-banner-sessions-text">0 duplicates</span>
+          </div>
+          <div class="dup-banner-actions">
+            <button class="pill-btn" id="btn-review-duplicates-sessions" title="View duplicate tabs in Open Tabs view">Review</button>
+            <button class="btn-clean-duplicates" id="btn-clean-duplicates-sessions" title="Close all duplicate tabs and keep original tabs">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              Close Duplicates
+            </button>
+          </div>
+        </div>
+
         <div class="sessions-hint">Click <b>Open</b> to open tabs here · <b>Close</b> to close them</div>
         <div class="sessions-list" id="sessions-list">
           <div class="empty-state" id="sessions-empty">

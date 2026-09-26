@@ -343,6 +343,123 @@ svg {
   border-color: rgba(244, 63, 94, 0.4);
 }
 
+/* ── Duplicate Tab Detector Banner ── */
+.duplicates-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 14px 8px;
+  padding: 8px 12px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  border-radius: var(--radius-md);
+  animation: banner-in 180ms var(--ease);
+  flex-shrink: 0;
+}
+
+@keyframes banner-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.dup-banner-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dup-icon-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-xs);
+  background: rgba(245, 158, 11, 0.18);
+  color: #fbbf24;
+  flex-shrink: 0;
+}
+
+.dup-text {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: #fbbf24;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dup-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.btn-clean-duplicates {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(244, 63, 94, 0.15);
+  color: #fda4af;
+  border: 1px solid rgba(244, 63, 94, 0.35);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: var(--transition);
+}
+
+.btn-clean-duplicates:hover {
+  background: rgba(244, 63, 94, 0.28);
+  border-color: rgba(244, 63, 94, 0.6);
+  color: #ffffff;
+  box-shadow: 0 0 10px rgba(244, 63, 94, 0.28);
+}
+
+.tab-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.tab-title-row .tab-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.tab-dup-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 4px;
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  border-radius: 3px;
+  background: rgba(245, 158, 11, 0.16);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.32);
+  flex-shrink: 0;
+  line-height: 1.2;
+}
+
+.tab-item.is-duplicate {
+  background: rgba(245, 158, 11, 0.03);
+  border-color: rgba(245, 158, 11, 0.15);
+}
+
+.tab-item.is-duplicate:hover {
+  background: rgba(245, 158, 11, 0.07);
+  border-color: rgba(245, 158, 11, 0.28);
+}
+
 /* ── Scrollable Lists ── */
 .windows-list,
 .sessions-list,

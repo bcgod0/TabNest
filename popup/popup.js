@@ -184,6 +184,8 @@ function setupTabChangeListeners() {
       await loadAll();
       if (currentView === 'open') {
         renderOpenTabs();
+      } else if (currentView === 'sessions') {
+        renderSessions();
       }
     }, 300);
   };
@@ -220,10 +222,117 @@ function renderCurrentView() {
   }
 }
 
+// ── Duplicate Tab Detection & Cleanup ─────────────────────────────────────────
+function normalizeTabUrl(url) {
+  if (!url) return '';
+  try {
+    const u = new URL(url);
+    let clean = `${u.origin}${u.pathname}`;
+    if (clean.length > 1 && clean.endsWith('/')) {
+      clean = clean.slice(0, -1);
+    }
+    if (u.search) {
+      const params = new URLSearchParams(u.search);
+      params.sort();
+      const qs = params.toString();
+      if (qs) clean += `?${qs}`;
+    }
+    return clean.toLowerCase();
+  } catch {
+    return url.split('#')[0].replace(/\/+$/, '').toLowerCase();
+  }
+}
+
+function getTabKeepScore(tab, win) {
+  let score = 0;
+  if (tab.pinned) score += 1000;
+  if (tab.active && win?.focused) score += 500;
+  else if (tab.active) score += 200;
+  if (tab.audible) score += 300;
+  if (win?.focused) score += 50;
+  score += Math.max(0, 50 - (tab.index || 0));
+  return score;
+}
+
+function detectDuplicateTabs() {
+  const urlGroups = new Map();
+
+  for (const win of allOpenWindows) {
+    for (const tab of win.tabs || []) {
+      if (!tab.url) continue;
+      const norm = normalizeTabUrl(tab.url);
+      if (!norm) continue;
+      if (!urlGroups.has(norm)) {
+        urlGroups.set(norm, []);
+      }
+      urlGroups.get(norm).push({ tab, win });
+    }
+  }
+
+  const duplicatesToClose = [];
+  const duplicateTabIds = new Set();
+  const duplicateOrigins = new Map(); // tabId -> original tab title
+
+  for (const [, group] of urlGroups.entries()) {
+    if (group.length <= 1) continue;
+
+    // Highest score stays (keeper)
+    group.sort((a, b) => getTabKeepScore(b.tab, b.win) - getTabKeepScore(a.tab, a.win));
+
+    const keeper = group[0];
+    for (let i = 1; i < group.length; i++) {
+      const dup = group[i];
+      duplicatesToClose.push(dup.tab);
+      duplicateTabIds.add(dup.tab.id);
+      duplicateOrigins.set(dup.tab.id, keeper.tab.title || 'Original Tab');
+    }
+  }
+
+  return { duplicatesToClose, duplicateTabIds, duplicateOrigins };
+}
+
+async function cleanAllDuplicateTabs(duplicatesToClose) {
+  if (!duplicatesToClose?.length) return;
+  const ids = duplicatesToClose.map((t) => t.id).filter(Boolean);
+  if (!ids.length) return;
+
+  const count = ids.length;
+  try {
+    await chrome.tabs.remove(ids);
+    showToast(`Closed ${count} duplicate tab${count !== 1 ? 's' : ''} ✓`);
+  } catch (err) {
+    // If batch removal fails (e.g. one tab closed prematurely), remove remaining individually
+    for (const id of ids) {
+      try { await chrome.tabs.remove(id); } catch (e) {}
+    }
+    showToast(`Closed duplicate tabs ✓`);
+  }
+  await loadAll();
+  renderCurrentView();
+}
+
 // ── Render: Open Tabs ─────────────────────────────────────────────────────────
 function renderOpenTabs() {
   const totalTabs = allOpenWindows.reduce((acc, w) => acc + (w.tabs?.length || 0), 0);
   $('open-tabs-title').textContent = `${allOpenWindows.length} Window${allOpenWindows.length !== 1 ? 's' : ''} · ${totalTabs} Tab${totalTabs !== 1 ? 's' : ''}`;
+
+  const { duplicatesToClose, duplicateTabIds, duplicateOrigins } = detectDuplicateTabs();
+  const dupBanner = $('duplicates-banner');
+  const dupText = $('dup-banner-text');
+  const btnCleanDups = $('btn-clean-duplicates');
+
+  if (dupBanner && dupText && btnCleanDups) {
+    if (duplicatesToClose.length > 0) {
+      dupBanner.style.display = 'flex';
+      dupText.textContent = `${duplicatesToClose.length} duplicate tab${duplicatesToClose.length !== 1 ? 's' : ''} detected`;
+      btnCleanDups.onclick = (e) => {
+        e.stopPropagation();
+        cleanAllDuplicateTabs(duplicatesToClose);
+      };
+    } else {
+      dupBanner.style.display = 'none';
+    }
+  }
 
   if (!allOpenWindows.length) {
     windowsList.innerHTML = '<div class="empty-state"><p>No open windows found</p></div>';
@@ -239,7 +348,7 @@ function renderOpenTabs() {
         <svg class="window-header-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
       </div>
       <div class="window-tab-list">
-        ${(win.tabs || []).map((tab) => renderTabItem(tab, 'open')).join('')}
+        ${(win.tabs || []).map((tab) => renderTabItem(tab, 'open', duplicateTabIds, duplicateOrigins)).join('')}
       </div>
     </div>
   `).join('');
@@ -293,7 +402,7 @@ function renderOpenTabs() {
 
 }
 
-function renderTabItem(tab, context = 'open') {
+function renderTabItem(tab, context = 'open', duplicateTabIds = null, duplicateOrigins = null) {
   const domain = getDomain(tab.url);
   const faviconUrl = tab.favIconUrl && !tab.favIconUrl.startsWith('chrome://') ? tab.favIconUrl : null;
   const faviconHtml = faviconUrl
@@ -303,6 +412,12 @@ function renderTabItem(tab, context = 'open') {
   const isChecked = selectedTabIds.has(tab.id);
   const checkboxHtml = `<div class="tab-checkbox ${isChecked ? 'checked' : ''}" data-chk="${tab.id}"></div>`;
 
+  const isDuplicate = context === 'open' && duplicateTabIds && duplicateTabIds.has(tab.id);
+  const origTitle = isDuplicate && duplicateOrigins ? duplicateOrigins.get(tab.id) : null;
+  const dupBadgeHtml = isDuplicate
+    ? `<span class="tab-dup-badge" title="${escapeHtml(`Duplicate copy of "${origTitle || 'original tab'}"`)}">Duplicate</span>`
+    : '';
+
   const actionsHtml = context === 'open' ? `
     <div class="tab-actions">
       <button class="tab-action-btn close-btn" data-action="close-tab" data-tab-id="${tab.id}" title="Close Tab">
@@ -311,7 +426,7 @@ function renderTabItem(tab, context = 'open') {
     </div>` : '';
 
   return `
-    <div class="tab-item ${tab.active ? 'active-tab' : ''} ${isChecked ? 'selected' : ''}" 
+    <div class="tab-item ${tab.active ? 'active-tab' : ''} ${isChecked ? 'selected' : ''} ${isDuplicate ? 'is-duplicate' : ''}" 
          data-tab-id="${tab.id || ''}" 
          data-win-id="${tab.windowId || ''}"
          title="${escapeHtml(tab.url || '')}">
@@ -319,7 +434,10 @@ function renderTabItem(tab, context = 'open') {
       ${tab.pinned ? '<div class="tab-pin-dot" title="Pinned"></div>' : ''}
       ${faviconHtml}
       <div class="tab-info">
-        <div class="tab-title">${escapeHtml(tab.title || 'Untitled')}</div>
+        <div class="tab-title-row">
+          <span class="tab-title">${escapeHtml(tab.title || 'Untitled')}</span>
+          ${dupBadgeHtml}
+        </div>
         <div class="tab-url">${escapeHtml(domain)}</div>
       </div>
       ${actionsHtml}
@@ -335,6 +453,31 @@ function getOpenUrlSet() {
 }
 
 function renderSessions() {
+  const { duplicatesToClose } = detectDuplicateTabs();
+  const dupBanner = $('duplicates-banner-sessions');
+  const dupText = $('dup-banner-sessions-text');
+  const btnCleanDups = $('btn-clean-duplicates-sessions');
+  const btnReviewDups = $('btn-review-duplicates-sessions');
+
+  if (dupBanner && dupText && btnCleanDups) {
+    if (duplicatesToClose.length > 0) {
+      dupBanner.style.display = 'flex';
+      dupText.textContent = `${duplicatesToClose.length} duplicate open tab${duplicatesToClose.length !== 1 ? 's' : ''} detected`;
+      btnCleanDups.onclick = (e) => {
+        e.stopPropagation();
+        cleanAllDuplicateTabs(duplicatesToClose);
+      };
+      if (btnReviewDups) {
+        btnReviewDups.onclick = (e) => {
+          e.stopPropagation();
+          switchView('open');
+        };
+      }
+    } else {
+      dupBanner.style.display = 'none';
+    }
+  }
+
   if (!allSessions.length) {
     sessionsList.innerHTML = `<div class="empty-state" id="sessions-empty">
       <div class="empty-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.4"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/></svg></div>
@@ -1388,7 +1531,13 @@ function showToast(msg) {
 // ── Utilities ─────────────────────────────────────────────────────────────────
 function updateCounts() {
   const totalTabs = allOpenWindows.reduce((acc, w) => acc + (w.tabs?.length || 0), 0);
-  openCount.textContent     = totalTabs;
+  const { duplicatesToClose } = detectDuplicateTabs();
+  openCount.textContent = totalTabs;
+  if (duplicatesToClose.length > 0) {
+    openCount.title = `${totalTabs} open tabs (${duplicatesToClose.length} duplicate${duplicatesToClose.length !== 1 ? 's' : ''})`;
+  } else {
+    openCount.title = `${totalTabs} open tabs`;
+  }
   sessionsCount.textContent = allSessions.length;
 }
 
