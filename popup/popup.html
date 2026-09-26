@@ -39,12 +39,12 @@
 
     <!-- ── Nav Tabs ── -->
     <nav class="nav-tabs" role="tablist">
-      <button class="nav-tab active" id="nav-open" role="tab" data-view="open">
+      <button class="nav-tab" id="nav-open" role="tab" data-view="open">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
         Open Tabs
         <span class="tab-count" id="open-count">0</span>
       </button>
-      <button class="nav-tab" id="nav-sessions" role="tab" data-view="sessions">
+      <button class="nav-tab active" id="nav-sessions" role="tab" data-view="sessions">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/></svg>
         Sessions
         <span class="tab-count" id="sessions-count">0</span>
@@ -59,7 +59,7 @@
     <main class="content" id="content">
 
       <!-- Open Tabs View -->
-      <section class="view active" id="view-open">
+      <section class="view" id="view-open">
         <div class="view-header">
           <span class="view-title" id="open-tabs-title">All Windows</span>
           <div class="view-actions">
@@ -93,7 +93,7 @@
       </section>
 
       <!-- Sessions View -->
-      <section class="view" id="view-sessions">
+      <section class="view active" id="view-sessions">
         <div class="view-header">
           <span class="view-title">Saved Sessions</span>
           <div class="view-actions">

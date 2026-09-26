@@ -4,7 +4,7 @@
 import { Storage } from '../utils/storage.js';
 
 // ── State ──────────────────────────────────────────────────────────────────────
-let currentView = 'open';
+let currentView = 'sessions';
 let allOpenWindows = [];
 let allSessions = [];
 let allHistory = [];
@@ -26,9 +26,10 @@ const toast            = $('toast');
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
-  await loadAll();
   bindEvents();
-  switchView('open');
+  switchView('sessions');
+  await loadAll();
+  renderCurrentView();
   updateFooter();
 }
 
