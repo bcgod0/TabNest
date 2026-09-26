@@ -28,9 +28,11 @@ const toast            = $('toast');
 async function init() {
   bindEvents();
   switchView('sessions');
+  await initActionTarget();
   await loadAll();
   renderCurrentView();
   updateFooter();
+  setupTabChangeListeners();
 }
 
 async function loadAll() {
@@ -57,9 +59,11 @@ function bindEvents() {
     });
   });
 
-
   // Header buttons
-  $('btn-snapshot').addEventListener('click', takeManualSnapshot);
+  $('btn-snapshot')?.addEventListener('click', takeManualSnapshot);
+  $('btn-sidepanel')?.addEventListener('click', openInSidePanel);
+  $('btn-popout')?.addEventListener('click', popOutStandalone);
+  $('btn-toggle-action-panel')?.addEventListener('click', toggleActionTarget);
 
   // Open tabs – selection mode
   $('btn-select-mode').addEventListener('click', toggleSelectMode);
@@ -105,6 +109,91 @@ function bindEvents() {
   // Keyboard
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closeModal();
+  });
+}
+
+// ── Side Panel & Window Management ──────────────────────────────────────────
+async function openInSidePanel() {
+  try {
+    const win = await chrome.windows.getCurrent();
+    if (chrome.sidePanel?.open) {
+      await chrome.sidePanel.open({ windowId: win.id });
+    } else {
+      await chrome.runtime.sendMessage({ type: 'OPEN_SIDEPANEL', windowId: win.id });
+    }
+    window.close();
+  } catch (err) {
+    console.error('Failed to open side panel:', err);
+    showToast('Side panel opened in browser window');
+  }
+}
+
+async function popOutStandalone() {
+  try {
+    await chrome.windows.create({
+      url: chrome.runtime.getURL('popup/popup.html'),
+      type: 'popup',
+      width: 430,
+      height: 620,
+    });
+  } catch (err) {
+    console.error('Failed to pop out:', err);
+  }
+}
+
+async function initActionTarget() {
+  try {
+    const { defaultActionTarget = 'popup' } = await chrome.storage.local.get('defaultActionTarget');
+    updateActionTargetLabel(defaultActionTarget);
+  } catch (e) {}
+}
+
+function updateActionTargetLabel(target) {
+  const label = $('action-target-label');
+  if (label) {
+    label.textContent = target === 'sidepanel' ? 'Side Panel' : 'Popup';
+  }
+}
+
+async function toggleActionTarget() {
+  try {
+    const { defaultActionTarget = 'popup' } = await chrome.storage.local.get('defaultActionTarget');
+    const newTarget = defaultActionTarget === 'popup' ? 'sidepanel' : 'popup';
+    await chrome.storage.local.set({ defaultActionTarget: newTarget });
+    updateActionTargetLabel(newTarget);
+
+    const openInSidePanelMode = newTarget === 'sidepanel';
+    if (chrome.sidePanel?.setPanelBehavior) {
+      await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: openInSidePanelMode });
+    } else {
+      await chrome.runtime.sendMessage({ type: 'SET_SIDEPANEL_BEHAVIOR', openPanelOnActionClick: openInSidePanelMode });
+    }
+
+    showToast(openInSidePanelMode ? 'Extension icon now opens Side Panel ✓' : 'Extension icon now opens Popup ✓');
+  } catch (err) {
+    console.error('Failed to toggle panel behavior:', err);
+  }
+}
+
+// Live update tabs when browsing with Side Panel open
+function setupTabChangeListeners() {
+  let debounceTimer;
+  const debouncedRefresh = () => {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(async () => {
+      await loadAll();
+      if (currentView === 'open') {
+        renderOpenTabs();
+      }
+    }, 300);
+  };
+
+  chrome.tabs?.onCreated?.addListener(debouncedRefresh);
+  chrome.tabs?.onRemoved?.addListener(debouncedRefresh);
+  chrome.tabs?.onUpdated?.addListener((_tabId, changeInfo) => {
+    if (changeInfo.status === 'complete' || changeInfo.title || changeInfo.favIconUrl) {
+      debouncedRefresh();
+    }
   });
 }
 
@@ -827,8 +916,15 @@ async function openSessionInCurrentWindow(id) {
   const session = allSessions.find((s) => s.id === id);
   if (!session?.tabs?.length) return;
 
-  const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  const currentWindowId = activeTab?.windowId;
+  let currentWindowId;
+  try {
+    const win = await chrome.windows.getCurrent();
+    currentWindowId = win?.id;
+  } catch (e) {}
+  if (!currentWindowId) {
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    currentWindowId = activeTab?.windowId;
+  }
 
   // Pre-seed tabNestRestores with saved scroll/video state
   const { tabNestRestores = {} } = await chrome.storage.local.get('tabNestRestores');
@@ -1041,8 +1137,15 @@ async function restoreSnapshot(snapId) {
   }
 
   // Target the current browser window
-  const currentWindow = await chrome.windows.getCurrent();
-  const currentWindowId = currentWindow?.id;
+  let currentWindowId;
+  try {
+    const currentWindow = await chrome.windows.getCurrent();
+    currentWindowId = currentWindow?.id;
+  } catch (e) {}
+  if (!currentWindowId) {
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    currentWindowId = activeTab?.windowId;
+  }
 
   // Record already opened tabs in this window so we can close them after restoration
   const existingTabs = await chrome.tabs.query({ windowId: currentWindowId });

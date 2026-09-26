@@ -68,11 +68,11 @@
   padding: 0;
 }
 
-html {
+html:not(.sidepanel-mode) {
   width: 410px;
 }
 
-body {
+body:not(.sidepanel-mode) {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 13px;
   line-height: 1.45;
@@ -83,6 +83,30 @@ body {
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Side Panel Mode: Adaptive Width & Full Height ── */
+html.sidepanel-mode,
+body.sidepanel-mode {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-primary);
+  background: var(--bg-base);
+  width: 100% !important;
+  height: 100vh !important;
+  min-width: 260px;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body.sidepanel-mode .app {
+  width: 100%;
+  height: 100vh;
 }
 
 button {
@@ -1036,6 +1060,31 @@ svg {
 
 .text-btn:hover {
   color: var(--text-primary);
+}
+
+.btn-toggle-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  font-size: 10px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.btn-toggle-action:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.action-target-badge {
+  color: var(--accent);
+  font-weight: 600;
 }
 
 /* ── Modals ── */

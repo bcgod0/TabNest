@@ -4,14 +4,29 @@
 const MAX_HISTORY_ENTRIES = 50;
 
 // ── Init ──────────────────────────────────────────────────────────────────────
+async function applySidePanelBehavior() {
+  try {
+    const { defaultActionTarget = 'popup' } = await chrome.storage.local.get('defaultActionTarget');
+    if (chrome.sidePanel?.setPanelBehavior) {
+      await chrome.sidePanel.setPanelBehavior({
+        openPanelOnActionClick: defaultActionTarget === 'sidepanel',
+      });
+    }
+  } catch (err) {
+    console.debug('[TabNest] Could not set panel behavior:', err.message);
+  }
+}
+
 chrome.runtime.onInstalled.addListener(async () => {
   console.log('[TabNest] Extension installed/updated');
   await chrome.alarms.clearAll();
+  await applySidePanelBehavior();
 });
 
 chrome.runtime.onStartup.addListener(async () => {
   console.log('[TabNest] Browser started');
   await chrome.alarms.clearAll();
+  await applySidePanelBehavior();
 });
 
 // ── Tab event listeners ───────────────────────────────────────────────────────
@@ -84,6 +99,27 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     chrome.windows.getAll({ populate: true }).then((windows) => {
       sendResponse({ windows });
     });
+    return true;
+  }
+  if (msg.type === 'OPEN_SIDEPANEL') {
+    const windowId = msg.windowId;
+    if (chrome.sidePanel?.open) {
+      chrome.sidePanel.open({ windowId })
+        .then(() => sendResponse({ success: true }))
+        .catch((err) => sendResponse({ success: false, error: err.message }));
+      return true;
+    }
+    sendResponse({ success: false, error: 'sidePanel API not available' });
+    return true;
+  }
+  if (msg.type === 'SET_SIDEPANEL_BEHAVIOR') {
+    if (chrome.sidePanel?.setPanelBehavior) {
+      chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: !!msg.openPanelOnActionClick })
+        .then(() => sendResponse({ success: true }))
+        .catch((err) => sendResponse({ success: false, error: err.message }));
+      return true;
+    }
+    sendResponse({ success: false, error: 'sidePanel API not available' });
     return true;
   }
 });

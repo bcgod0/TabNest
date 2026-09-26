@@ -30,6 +30,9 @@
         </div>
       </div>
       <div class="header-right">
+        <button class="icon-btn" id="btn-sidepanel" title="Open in Side Panel">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
+        </button>
         <button class="icon-btn" id="btn-snapshot" title="Take Snapshot Now">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M20.94 11A8.994 8.994 0 1 1 12.06 3"/></svg>
         </button>
@@ -137,6 +140,10 @@
     <footer class="footer">
       <span class="footer-info" id="footer-info">Privacy-first · Local only</span>
       <div class="footer-actions">
+        <button class="btn-toggle-action" id="btn-toggle-action-panel" title="Toggle whether clicking extension icon opens Popup or Side Panel">
+          Click: <span class="action-target-badge" id="action-target-label">Popup</span>
+        </button>
+        <span class="footer-sep">·</span>
         <button class="text-btn" id="btn-export" title="Export sessions as JSON">Export</button>
         <span class="footer-sep">·</span>
         <button class="text-btn" id="btn-import" title="Import sessions">Import</button>

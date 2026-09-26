@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en" class="sidepanel-mode">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TabNest – Side Panel</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body class="sidepanel-mode">
+  <div class="app" id="app">
+
+    <!-- ── Header ── -->
+    <header class="header">
+      <div class="header-left">
+        <div class="logo">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="2" y="4" width="20" height="16" rx="4" fill="url(#logo-grad1)"/>
+            <path d="M7 8h10M7 12h6M7 16h4" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
+            <defs>
+              <linearGradient id="logo-grad1" x1="2" y1="4" x2="22" y2="20" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#6366f1"/>
+                <stop offset="1" stop-color="#38bdf8"/>
+              </linearGradient>
+            </defs>
+          </svg>
+          <span class="logo-text">TabNest</span>
+        </div>
+      </div>
+      <div class="header-right">
+        <button class="icon-btn" id="btn-popout" title="Pop out into separate window">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        </button>
+        <button class="icon-btn" id="btn-snapshot" title="Take Snapshot Now">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M20.94 11A8.994 8.994 0 1 1 12.06 3"/></svg>
+        </button>
+      </div>
+    </header>
+
+
+    <!-- ── Nav Tabs ── -->
+    <nav class="nav-tabs" role="tablist">
+      <button class="nav-tab" id="nav-open" role="tab" data-view="open">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        Open Tabs
+        <span class="tab-count" id="open-count">0</span>
+      </button>
+      <button class="nav-tab active" id="nav-sessions" role="tab" data-view="sessions">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/></svg>
+        Sessions
+        <span class="tab-count" id="sessions-count">0</span>
+      </button>
+      <button class="nav-tab" id="nav-history" role="tab" data-view="history">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="12 8 12 12 14 14"/><path d="M3.05 11a9 9 0 1 1 .5 4m-.5 5V16h4"/></svg>
+        History
+      </button>
+    </nav>
+
+    <!-- ── Content Views ── -->
+    <main class="content" id="content">
+
+      <!-- Open Tabs View -->
+      <section class="view" id="view-open">
+        <div class="view-header">
+          <span class="view-title" id="open-tabs-title">All Windows</span>
+          <div class="view-actions">
+            <button class="pill-btn" id="btn-select-mode">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+              Select
+            </button>
+          </div>
+        </div>
+
+        <!-- Floating selection bar (shown in select mode) -->
+        <div class="selection-bar" id="selection-bar">
+          <span class="selection-count" id="selection-count">0 selected</span>
+          <div class="selection-actions">
+            <button class="pill-btn" id="btn-select-all">All</button>
+            <button class="pill-btn" id="btn-deselect-all">None</button>
+            <button class="pill-btn accent" id="btn-save-selected" disabled>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/></svg>
+              Save Selected
+            </button>
+            <button class="pill-btn" id="btn-cancel-select">✕</button>
+          </div>
+        </div>
+
+        <div class="windows-list" id="windows-list">
+          <div class="loading-state">
+            <div class="spinner"></div>
+            <span>Loading tabs…</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Sessions View -->
+      <section class="view active" id="view-sessions">
+        <div class="view-header">
+          <span class="view-title">Saved Sessions</span>
+          <div class="view-actions">
+            <button class="pill-btn accent" id="btn-new-session">+ Save Current</button>
+          </div>
+        </div>
+        <div class="sessions-hint">Click <b>Open</b> to open tabs here · <b>Close</b> to close them</div>
+        <div class="sessions-list" id="sessions-list">
+          <div class="empty-state" id="sessions-empty">
+            <div class="empty-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.4"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            </div>
+            <p>No saved sessions yet</p>
+            <span>Click "Save Current" to save your open tabs</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- History View -->
+      <section class="view" id="view-history">
+        <div class="view-header">
+          <span class="view-title">Tab History</span>
+          <div class="view-actions">
+            <button class="pill-btn danger" id="btn-clear-history">Clear</button>
+          </div>
+        </div>
+        <div class="history-list" id="history-list">
+          <div class="empty-state" id="history-empty">
+            <div class="empty-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.4"><polyline points="12 8 12 12 14 14"/><path d="M3.05 11a9 9 0 1 1 .5 4m-.5 5V16h4"/></svg>
+            </div>
+            <p>No history yet</p>
+            <span>Snapshots appear here automatically</span>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- ── Footer ── -->
+    <footer class="footer">
+      <span class="footer-info" id="footer-info">Privacy-first · Local only</span>
+      <div class="footer-actions">
+        <button class="btn-toggle-action" id="btn-toggle-action-panel" title="Toggle whether clicking extension icon opens Popup or Side Panel">
+          Click: <span class="action-target-badge" id="action-target-label">Popup</span>
+        </button>
+        <span class="footer-sep">·</span>
+        <button class="text-btn" id="btn-export" title="Export sessions as JSON">Export</button>
+        <span class="footer-sep">·</span>
+        <button class="text-btn" id="btn-import" title="Import sessions">Import</button>
+        <input type="file" id="import-file" accept=".json" style="display:none" />
+      </div>
+    </footer>
+
+    <!-- ── Modals ── -->
+    <div class="modal-overlay" id="modal-overlay">
+      <!-- Save Session Modal -->
+      <div class="modal" id="modal-save-session">
+        <div class="modal-header">
+          <h2 class="modal-title">Save Session</h2>
+          <button class="modal-close" id="modal-save-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <label class="form-label">Session Name</label>
+          <input class="form-input" id="session-name-input" type="text" placeholder="e.g. Work – Monday sprint" />
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" id="modal-save-cancel">Cancel</button>
+          <button class="btn-primary" id="modal-save-confirm">Save Session</button>
+        </div>
+      </div>
+
+      <!-- Rename Modal -->
+      <div class="modal" id="modal-rename">
+        <div class="modal-header">
+          <h2 class="modal-title" id="modal-rename-title">Rename</h2>
+          <button class="modal-close" id="modal-rename-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <label class="form-label" id="modal-rename-label">New Name</label>
+          <input class="form-input" id="modal-rename-input" type="text" placeholder="Enter name" />
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" id="modal-rename-cancel">Cancel</button>
+          <button class="btn-primary" id="modal-rename-confirm">Save</button>
+        </div>
+      </div>
+
+      <!-- Customize Links Modal -->
+      <div class="modal modal-wide" id="modal-customize-links">
+        <div class="modal-header">
+          <div>
+            <h2 class="modal-title">Customize Links</h2>
+            <span class="modal-subtitle" id="customize-links-subtitle">Edit session tabs</span>
+          </div>
+          <button class="modal-close" id="modal-links-close">✕</button>
+        </div>
+        <div class="modal-body modal-scrollable">
+          <div class="links-toolbar">
+            <span class="links-count" id="customize-links-count">0 links</span>
+            <button class="pill-btn accent" id="btn-add-link">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Add Link
+            </button>
+          </div>
+          <div class="links-edit-list" id="links-edit-list">
+            <!-- Dynamically populated link rows -->
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" id="modal-links-cancel">Cancel</button>
+          <button class="btn-primary" id="modal-links-save">Save Changes</button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ── Toast ── -->
+    <div class="toast" id="toast"></div>
+
+  </div>
+  <script src="popup.js" type="module"></script>
+</body>
+</html>

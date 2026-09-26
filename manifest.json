@@ -29,8 +29,12 @@
     "sessions",
     "alarms",
     "windows",
-    "scripting"
+    "scripting",
+    "sidePanel"
   ],
+  "side_panel": {
+    "default_path": "popup/sidepanel.html"
+  },
   "host_permissions": [
     "<all_urls>"
   ]
