@@ -73,10 +73,25 @@ function bindEvents() {
   // History
   $('btn-clear-history').addEventListener('click', clearHistory);
 
-  // Modals
+  // Modals – Save
   $('modal-save-close').addEventListener('click', closeModal);
   $('modal-save-cancel').addEventListener('click', closeModal);
   $('modal-save-confirm').addEventListener('click', confirmSaveSession);
+
+  // Modals – Rename
+  $('modal-rename-close').addEventListener('click', closeModal);
+  $('modal-rename-cancel').addEventListener('click', closeModal);
+  $('modal-rename-confirm').addEventListener('click', confirmRename);
+  $('modal-rename-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') confirmRename();
+  });
+
+  // Modals – Customize Links
+  $('modal-links-close').addEventListener('click', closeModal);
+  $('modal-links-cancel').addEventListener('click', closeModal);
+  $('modal-links-save').addEventListener('click', confirmCustomizeLinks);
+  $('btn-add-link').addEventListener('click', addCustomizeLinkRow);
+
   modalOverlay.addEventListener('click', (e) => {
     if (e.target === modalOverlay) closeModal();
   });
@@ -266,11 +281,22 @@ function renderSessions() {
       : '';
 
     return `
-      <div class="session-card" data-session-id="${s.id}">
+      <div class="session-card" data-session-id="${s.id}" data-id="${s.id}">
         <div class="session-card-header">
-          <span class="session-name">${escapeHtml(s.name)}</span>
-          <div style="display:flex;gap:4px;align-items:center;flex-shrink:0">
+          <div class="session-title-group">
+            <span class="session-name" title="${escapeHtml(s.name)}">${escapeHtml(s.name)}</span>
+            <button class="card-icon-btn" data-action="rename-session" data-id="${s.id}" title="Rename session">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+            </button>
+            <button class="card-icon-btn" data-action="customize-session-links" data-id="${s.id}" title="Customize links">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+            </button>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
             ${indicator}
+            <button class="drag-handle" data-id="${s.id}" title="Drag to reorder" aria-label="Drag to reorder">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/></svg>
+            </button>
           </div>
         </div>
         <div class="session-favicon-strip">${favicons}</div>
@@ -293,6 +319,20 @@ function renderSessions() {
         </div>
       </div>`;
   }).join('');
+
+  document.querySelectorAll('[data-action="rename-session"]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openRenameModal('session', btn.dataset.id);
+    });
+  });
+
+  document.querySelectorAll('[data-action="customize-session-links"]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openCustomizeLinksModal('session', btn.dataset.id);
+    });
+  });
 
   document.querySelectorAll('[data-action="open-session"]').forEach((btn) => {
     btn.addEventListener('click', (e) => {
@@ -318,6 +358,24 @@ function renderSessions() {
       showToast('Session deleted');
     });
   });
+
+  // Enable drag and drop reordering for session cards
+  setupDragAndDrop(sessionsList, '.session-card', '.drag-handle', async (sourceId, targetId, dropAbove) => {
+    const fromIdx = allSessions.findIndex((s) => s.id === sourceId);
+    if (fromIdx === -1) return;
+
+    const [moved] = allSessions.splice(fromIdx, 1);
+    let insertIdx = allSessions.findIndex((s) => s.id === targetId);
+    if (insertIdx === -1) {
+      allSessions.push(moved);
+    } else {
+      if (!dropAbove) insertIdx += 1;
+      allSessions.splice(insertIdx, 0, moved);
+    }
+
+    await Storage.setSessions(allSessions);
+    renderSessions();
+  });
 }
 
 
@@ -331,21 +389,378 @@ function renderHistory() {
     return;
   }
 
-  historyList.innerHTML = allHistory.map((snap) => `
-    <div class="history-item" data-snap-id="${snap.id}">
-      <span class="history-trigger-badge ${snap.trigger}">${snap.trigger}</span>
-      <div class="history-info">
-        <div class="history-time">${formatDateTime(snap.timestamp)}</div>
-        <div class="history-stats">${snap.windowCount} window${snap.windowCount !== 1 ? 's' : ''} · ${snap.tabCount} tab${snap.tabCount !== 1 ? 's' : ''}</div>
+  historyList.innerHTML = allHistory.map((snap) => {
+    return `
+      <div class="history-item" data-snap-id="${snap.id}" data-id="${snap.id}">
+        <span class="history-trigger-badge ${snap.trigger}">${snap.trigger}</span>
+        <div class="history-info">
+          <div class="history-title-row">
+            <span class="history-name" title="${escapeHtml(snap.name || formatDateTime(snap.timestamp))}">${escapeHtml(snap.name || formatDateTime(snap.timestamp))}</span>
+            <button class="card-icon-btn" data-action="rename-snap" data-id="${snap.id}" title="Rename snapshot">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+            </button>
+            <button class="card-icon-btn" data-action="customize-snap-links" data-id="${snap.id}" title="Customize links">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+            </button>
+          </div>
+          <div class="history-stats">${snap.name ? formatDateTime(snap.timestamp) + ' · ' : ''}${snap.windowCount} window${snap.windowCount !== 1 ? 's' : ''} · ${snap.tabCount} tab${snap.tabCount !== 1 ? 's' : ''}</div>
+        </div>
+        <div class="history-actions">
+          <button class="history-restore-btn" data-action="restore-snap" data-snap-id="${snap.id}">Restore</button>
+          <button class="history-delete-btn" data-action="delete-snap" data-snap-id="${snap.id}" title="Remove snapshot">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+          </button>
+          <button class="drag-handle" data-id="${snap.id}" title="Drag to reorder" aria-label="Drag to reorder">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/></svg>
+          </button>
+        </div>
       </div>
-      <button class="history-restore-btn" data-action="restore-snap" data-snap-id="${snap.id}">Restore</button>
-    </div>
-  `).join('');
+    `;
+  }).join('');
+
+  document.querySelectorAll('[data-action="rename-snap"]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openRenameModal('snapshot', btn.dataset.id);
+    });
+  });
+
+  document.querySelectorAll('[data-action="customize-snap-links"]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openCustomizeLinksModal('snapshot', btn.dataset.id);
+    });
+  });
 
   document.querySelectorAll('[data-action="restore-snap"]').forEach((btn) => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       restoreSnapshot(btn.dataset.snapId);
+    });
+  });
+
+  document.querySelectorAll('[data-action="delete-snap"]').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const snapId = btn.dataset.snapId;
+      await Storage.deleteHistoryItem(snapId);
+      allHistory = await Storage.getHistory();
+      renderHistory();
+      showToast('Snapshot removed ✓');
+    });
+  });
+
+  // Enable drag and drop reordering for snapshot history items
+  setupDragAndDrop(historyList, '.history-item', '.drag-handle', async (sourceId, targetId, dropAbove) => {
+    const fromIdx = allHistory.findIndex((s) => s.id === sourceId);
+    if (fromIdx === -1) return;
+
+    const [moved] = allHistory.splice(fromIdx, 1);
+    let insertIdx = allHistory.findIndex((s) => s.id === targetId);
+    if (insertIdx === -1) {
+      allHistory.push(moved);
+    } else {
+      if (!dropAbove) insertIdx += 1;
+      allHistory.splice(insertIdx, 0, moved);
+    }
+
+    await Storage.setHistory(allHistory);
+    renderHistory();
+  });
+}
+
+// ── Rename Controller ─────────────────────────────────────────────────────────
+let activeRenameTarget = null; // { type: 'session' | 'snapshot', id: string }
+
+function openRenameModal(type, id) {
+  activeRenameTarget = { type, id };
+  if (type === 'session') {
+    const session = allSessions.find((s) => s.id === id);
+    if (!session) return;
+    $('modal-rename-title').textContent = 'Rename Session';
+    $('modal-rename-label').textContent = 'Session Name';
+    $('modal-rename-input').value = session.name || '';
+  } else {
+    const snap = allHistory.find((s) => s.id === id);
+    if (!snap) return;
+    $('modal-rename-title').textContent = 'Rename Snapshot';
+    $('modal-rename-label').textContent = 'Snapshot Name';
+    $('modal-rename-input').value = snap.name || formatDateTime(snap.timestamp);
+  }
+  showModal('modal-rename');
+  setTimeout(() => $('modal-rename-input').select(), 50);
+}
+
+async function confirmRename() {
+  if (!activeRenameTarget) return;
+  const newName = $('modal-rename-input').value.trim();
+  if (!newName) {
+    showToast('Name cannot be empty');
+    return;
+  }
+
+  if (activeRenameTarget.type === 'session') {
+    const session = allSessions.find((s) => s.id === activeRenameTarget.id);
+    if (session) {
+      session.name = newName;
+      await Storage.saveSession(session);
+      allSessions = await Storage.getSessions();
+      renderSessions();
+      showToast('Session renamed ✓');
+    }
+  } else if (activeRenameTarget.type === 'snapshot') {
+    const snap = allHistory.find((s) => s.id === activeRenameTarget.id);
+    if (snap) {
+      snap.name = newName;
+      await Storage.setHistory(allHistory);
+      renderHistory();
+      showToast('Snapshot renamed ✓');
+    }
+  }
+
+  closeModal();
+}
+
+// ── Customize Links Controller ────────────────────────────────────────────────
+let activeCustomizeTarget = null; // { type: 'session' | 'snapshot', id: string, tabs: Array }
+
+function openCustomizeLinksModal(type, id) {
+  if (type === 'session') {
+    const session = allSessions.find((s) => s.id === id);
+    if (!session) return;
+    activeCustomizeTarget = {
+      type: 'session',
+      id,
+      tabs: (session.tabs || []).map((t) => ({ ...t })),
+    };
+    $('customize-links-subtitle').textContent = `Session: "${session.name}"`;
+  } else {
+    const snap = allHistory.find((s) => s.id === id);
+    if (!snap) return;
+    const flatTabs = snap.windows ? snap.windows.flatMap((w) => w.tabs || []) : (snap.tabs || []);
+    activeCustomizeTarget = {
+      type: 'snapshot',
+      id,
+      tabs: flatTabs.map((t) => ({ ...t })),
+    };
+    $('customize-links-subtitle').textContent = `Snapshot: "${snap.name || formatDateTime(snap.timestamp)}"`;
+  }
+
+  renderCustomizeLinkRows();
+  showModal('modal-customize-links');
+}
+
+function renderCustomizeLinkRows() {
+  const container = $('links-edit-list');
+  const countEl = $('customize-links-count');
+  if (!activeCustomizeTarget) return;
+
+  countEl.textContent = `${activeCustomizeTarget.tabs.length} link${activeCustomizeTarget.tabs.length !== 1 ? 's' : ''}`;
+
+  if (!activeCustomizeTarget.tabs.length) {
+    container.innerHTML = `
+      <div style="text-align:center;padding:24px 10px;color:var(--text-muted);font-size:12px">
+        No links yet. Click "Add Link" to add one.
+      </div>`;
+    return;
+  }
+
+  container.innerHTML = activeCustomizeTarget.tabs.map((tab, idx) => `
+    <div class="link-edit-row" data-idx="${idx}">
+      <div class="link-edit-inputs">
+        <input class="form-input link-title-input" placeholder="Page Title (optional)" value="${escapeHtml(tab.title || '')}" />
+        <input class="form-input link-url-input" placeholder="https://..." value="${escapeHtml(tab.url || '')}" />
+      </div>
+      <div class="link-edit-actions">
+        <button class="link-pin-btn ${tab.pinned ? 'active' : ''}" data-action="toggle-pin" data-idx="${idx}" title="${tab.pinned ? 'Pinned tab' : 'Pin tab'}">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="${tab.pinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"/></svg>
+        </button>
+        <button class="link-remove-btn" data-action="remove-link" data-idx="${idx}" title="Remove link">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+        </button>
+      </div>
+    </div>
+  `).join('');
+
+  // Pin toggle
+  container.querySelectorAll('[data-action="toggle-pin"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.idx);
+      syncCurrentLinkInputs();
+      activeCustomizeTarget.tabs[idx].pinned = !activeCustomizeTarget.tabs[idx].pinned;
+      renderCustomizeLinkRows();
+    });
+  });
+
+  // Remove link
+  container.querySelectorAll('[data-action="remove-link"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.idx);
+      syncCurrentLinkInputs();
+      activeCustomizeTarget.tabs.splice(idx, 1);
+      renderCustomizeLinkRows();
+    });
+  });
+}
+
+function syncCurrentLinkInputs() {
+  const container = $('links-edit-list');
+  if (!container || !activeCustomizeTarget) return;
+  const rows = container.querySelectorAll('.link-edit-row');
+  rows.forEach((row, i) => {
+    if (activeCustomizeTarget.tabs[i]) {
+      const titleInput = row.querySelector('.link-title-input');
+      const urlInput = row.querySelector('.link-url-input');
+      if (titleInput) activeCustomizeTarget.tabs[i].title = titleInput.value;
+      if (urlInput) activeCustomizeTarget.tabs[i].url = urlInput.value;
+    }
+  });
+}
+
+function addCustomizeLinkRow() {
+  if (!activeCustomizeTarget) return;
+  syncCurrentLinkInputs();
+  activeCustomizeTarget.tabs.push({ url: '', title: '', pinned: false });
+  renderCustomizeLinkRows();
+
+  const rows = $('links-edit-list').querySelectorAll('.link-edit-row');
+  const lastRow = rows[rows.length - 1];
+  if (lastRow) {
+    const urlInput = lastRow.querySelector('.link-url-input');
+    if (urlInput) urlInput.focus();
+  }
+}
+
+async function confirmCustomizeLinks() {
+  if (!activeCustomizeTarget) return;
+  syncCurrentLinkInputs();
+
+  const finalTabs = [];
+  for (const t of activeCustomizeTarget.tabs) {
+    let url = (t.url || '').trim();
+    if (!url) continue;
+    if (!url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('chrome://') && !url.startsWith('edge://')) {
+      url = 'https://' + url;
+    }
+    finalTabs.push({
+      ...t,
+      url,
+      title: (t.title || '').trim() || getDomain(url),
+      pinned: !!t.pinned,
+    });
+  }
+
+  if (activeCustomizeTarget.type === 'session') {
+    const session = allSessions.find((s) => s.id === activeCustomizeTarget.id);
+    if (session) {
+      session.tabs = finalTabs;
+      await Storage.saveSession(session);
+      allSessions = await Storage.getSessions();
+      renderSessions();
+      showToast(`Saved ${finalTabs.length} link${finalTabs.length !== 1 ? 's' : ''} ✓`);
+    }
+  } else if (activeCustomizeTarget.type === 'snapshot') {
+    const snap = allHistory.find((s) => s.id === activeCustomizeTarget.id);
+    if (snap) {
+      if (snap.windows && snap.windows.length) {
+        snap.windows[0].tabs = finalTabs;
+        snap.windows.splice(1);
+      } else {
+        snap.windows = [{ id: 1, focused: true, tabs: finalTabs }];
+      }
+      snap.tabCount = finalTabs.length;
+      snap.windowCount = 1;
+      await Storage.setHistory(allHistory);
+      renderHistory();
+      showToast(`Saved ${finalTabs.length} link${finalTabs.length !== 1 ? 's' : ''} ✓`);
+    }
+  }
+
+  closeModal();
+}
+
+// ── Generic Drag and Drop Reorder Controller ──────────────────────────────────
+function setupDragAndDrop(containerEl, itemsSelector, handleSelector, onReorder) {
+  let draggedEl = null;
+
+  containerEl.querySelectorAll(itemsSelector).forEach((item) => {
+    const handle = item.querySelector(handleSelector);
+    if (!handle) return;
+
+    // Enable HTML5 drag only when mouse is pressed on the drag handle
+    handle.addEventListener('mousedown', () => {
+      item.setAttribute('draggable', 'true');
+    });
+
+    handle.addEventListener('mouseup', () => {
+      item.removeAttribute('draggable');
+    });
+
+    item.addEventListener('dragstart', (e) => {
+      draggedEl = item;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', item.dataset.id || '');
+      setTimeout(() => item.classList.add('is-dragging'), 0);
+    });
+
+    item.addEventListener('dragend', () => {
+      item.removeAttribute('draggable');
+      item.classList.remove('is-dragging');
+      containerEl.querySelectorAll('.drag-over-top, .drag-over-bottom').forEach((el) => {
+        el.classList.remove('drag-over-top', 'drag-over-bottom');
+      });
+      draggedEl = null;
+    });
+
+    item.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      if (!draggedEl || draggedEl === item) return;
+
+      const rect = item.getBoundingClientRect();
+      const midY = rect.top + rect.height / 2;
+      const isAbove = e.clientY < midY;
+
+      containerEl.querySelectorAll(itemsSelector).forEach((el) => {
+        if (el !== item) el.classList.remove('drag-over-top', 'drag-over-bottom');
+      });
+
+      if (isAbove) {
+        item.classList.add('drag-over-top');
+        item.classList.remove('drag-over-bottom');
+      } else {
+        item.classList.add('drag-over-bottom');
+        item.classList.remove('drag-over-top');
+      }
+    });
+
+    item.addEventListener('dragleave', (e) => {
+      const rect = item.getBoundingClientRect();
+      if (
+        e.clientY < rect.top ||
+        e.clientY >= rect.bottom ||
+        e.clientX < rect.left ||
+        e.clientX >= rect.right
+      ) {
+        item.classList.remove('drag-over-top', 'drag-over-bottom');
+      }
+    });
+
+    item.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      item.classList.remove('drag-over-top', 'drag-over-bottom');
+      if (!draggedEl || draggedEl === item) return;
+
+      const rect = item.getBoundingClientRect();
+      const midY = rect.top + rect.height / 2;
+      const dropAbove = e.clientY < midY;
+
+      const sourceId = draggedEl.dataset.id;
+      const targetId = item.dataset.id;
+
+      if (!sourceId || !targetId || sourceId === targetId) return;
+
+      await onReorder(sourceId, targetId, dropAbove);
     });
   });
 }
@@ -619,17 +1034,118 @@ async function clearHistory() {
 
 async function restoreSnapshot(snapId) {
   const snap = allHistory.find((s) => s.id === snapId);
-  if (!snap?.windows) return;
+  if (!snap?.windows?.length) {
+    showToast('Snapshot is empty');
+    return;
+  }
 
-  for (const win of snap.windows) {
-    const urls = (win.tabs || []).map((t) => t.url).filter(Boolean);
-    if (urls.length) {
-      await chrome.windows.create({ url: urls });
+  // Target the current browser window
+  const currentWindow = await chrome.windows.getCurrent();
+  const currentWindowId = currentWindow?.id;
+
+  // Record already opened tabs in this window so we can close them after restoration
+  const existingTabs = await chrome.tabs.query({ windowId: currentWindowId });
+  const existingTabIds = existingTabs.map((t) => t.id).filter(Boolean);
+
+  // Prioritize focused window from snapshot if multi-window
+  const sortedWindows = [...snap.windows].sort((a, b) => (b.focused ? 1 : 0) - (a.focused ? 1 : 0));
+
+  // Separate pinned and unpinned tabs to preserve Chrome ordering constraints:
+  // In Chrome, all pinned tabs must precede unpinned tabs in a window.
+  // Within each category, the original order is strictly maintained.
+  const pinnedTabs = [];
+  const unpinnedTabs = [];
+
+  for (const win of sortedWindows) {
+    for (const tab of win.tabs || []) {
+      if (!tab.url) continue;
+      // Skip internal developer tool windows if any
+      if (tab.url.startsWith('chrome-devtools://')) continue;
+
+      const item = { tab, winFocused: !!win.focused };
+      if (tab.pinned) {
+        pinnedTabs.push(item);
+      } else {
+        unpinnedTabs.push(item);
+      }
     }
   }
 
-  showToast('Snapshot restored');
-  window.close();
+  const tabsToRestore = [...pinnedTabs, ...unpinnedTabs];
+  if (!tabsToRestore.length) {
+    showToast('No valid tabs in snapshot to restore');
+    return;
+  }
+
+  // Pre-seed tabNestRestores if any scroll or video timestamps exist
+  const { tabNestRestores = {} } = await chrome.storage.local.get('tabNestRestores');
+  let hasRestores = false;
+  for (const item of tabsToRestore) {
+    const t = item.tab;
+    if (t.url && (t.scrollY > 20 || t.videoTime > 1)) {
+      const rawKey = t.url.split('#')[0];
+      const normKey = rawKey.replace(/\/+$/, '');
+      const stateObj = {
+        scrollX: t.scrollX || 0,
+        scrollY: t.scrollY || 0,
+        videoTime: t.videoTime || 0,
+        savedAt: Date.now(),
+      };
+      tabNestRestores[rawKey] = stateObj;
+      tabNestRestores[normKey] = stateObj;
+      hasRestores = true;
+    }
+  }
+  if (hasRestores) {
+    await chrome.storage.local.set({ tabNestRestores });
+  }
+
+  let activeTabIdToFocus = null;
+  const createdTabIds = [];
+
+  for (const item of tabsToRestore) {
+    try {
+      const createdTab = await chrome.tabs.create({
+        url: item.tab.url,
+        windowId: currentWindowId,
+        active: false,
+        pinned: !!item.tab.pinned,
+      });
+
+      createdTabIds.push(createdTab.id);
+
+      // Track active tab: prioritize the active tab in the focused window
+      if (item.tab.active && (!activeTabIdToFocus || item.winFocused)) {
+        activeTabIdToFocus = createdTab.id;
+      }
+    } catch (err) {
+      console.error('[TabNest] Failed to restore tab:', item.tab.url, err);
+    }
+  }
+
+  // If no tab was explicitly marked active, focus the first restored tab
+  if (!activeTabIdToFocus && createdTabIds.length) {
+    activeTabIdToFocus = createdTabIds[0];
+  }
+
+  // Restore active focus to the target tab
+  if (activeTabIdToFocus) {
+    try {
+      await chrome.tabs.update(activeTabIdToFocus, { active: true });
+    } catch (_) {}
+  }
+
+  // Close the already opened tabs that were present before restoring
+  if (createdTabIds.length && existingTabIds.length) {
+    try {
+      await chrome.tabs.remove(existingTabIds);
+    } catch (err) {
+      console.warn('[TabNest] Error closing pre-existing tabs:', err);
+    }
+  }
+
+  showToast(`Restored ${createdTabIds.length} tab${createdTabIds.length !== 1 ? 's' : ''} in current window ✓`);
+  setTimeout(() => window.close(), 500);
 }
 
 // ── Selection Mode ────────────────────────────────────────────────────────────
@@ -752,6 +1268,8 @@ function showModal(id) {
 function closeModal() {
   modalOverlay.classList.remove('open');
   pendingSessionTabs = null;
+  activeRenameTarget = null;
+  activeCustomizeTarget = null;
 }
 
 // ── Toast ─────────────────────────────────────────────────────────────────────

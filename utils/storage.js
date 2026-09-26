@@ -38,6 +38,11 @@ export const Storage = {
     return session;
   },
 
+  async setSessions(sessions) {
+    await this.set({ sessions });
+    return sessions;
+  },
+
   async deleteSession(id) {
     const sessions = await this.getSessions();
     await this.set({ sessions: sessions.filter((s) => s.id !== id) });
@@ -72,7 +77,19 @@ export const Storage = {
     return tabHistory;
   },
 
+  async setHistory(tabHistory) {
+    await this.set({ tabHistory, lastSnapshot: tabHistory[0] || null });
+    return tabHistory;
+  },
+
+  async deleteHistoryItem(id) {
+    const history = await this.getHistory();
+    const updated = history.filter((h) => h.id !== id);
+    await this.set({ tabHistory: updated, lastSnapshot: updated[0] || null });
+    return updated;
+  },
+
   async clearHistory() {
-    await this.set({ tabHistory: [] });
+    await this.set({ tabHistory: [], lastSnapshot: null });
   },
 };

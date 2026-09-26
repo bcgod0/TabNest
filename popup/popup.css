@@ -622,15 +622,44 @@ svg {
   gap: 8px;
 }
 
+.session-title-group {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  flex: 1;
+}
+
 .session-name {
   font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
-  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.card-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: var(--transition);
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.card-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
 }
 
 .session-open-indicator {
@@ -804,10 +833,20 @@ svg {
   min-width: 0;
 }
 
-.history-time {
+.history-title-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.history-name {
   font-size: 12px;
   font-weight: 500;
   color: var(--text-primary);
+  max-width: 155px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .history-stats {
@@ -815,8 +854,64 @@ svg {
   color: var(--text-muted);
 }
 
+/* ── Drag & Drop Handle & States ── */
+.drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  cursor: grab;
+  transition: var(--transition);
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.drag-handle:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+  background: var(--accent-subtle);
+  border-color: var(--accent-border);
+  color: #c7d2fe;
+}
+
+/* While item is dragged */
+.session-card.is-dragging,
+.history-item.is-dragging {
+  opacity: 0.35;
+  border-color: var(--accent-border) !important;
+}
+
+/* Drop target insertion indicators */
+.session-card.drag-over-top,
+.history-item.drag-over-top {
+  border-top: 2px solid var(--accent) !important;
+}
+
+.session-card.drag-over-bottom,
+.history-item.drag-over-bottom {
+  border-bottom: 2px solid var(--accent) !important;
+}
+
+.history-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
 .history-restore-btn {
   display: inline-flex;
+  align-items: center;
   padding: 3px 9px;
   font-size: 11px;
   font-weight: 500;
@@ -831,6 +926,25 @@ svg {
   background: var(--accent-subtle);
   border-color: var(--accent-border);
   color: #c7d2fe;
+}
+
+.history-delete-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 23px;
+  height: 23px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  transition: var(--transition);
+}
+
+.history-delete-btn:hover {
+  background: var(--danger-subtle);
+  border-color: var(--danger-border);
+  color: #fca5a5;
 }
 
 /* ── Empty & Loading States ── */
@@ -1054,6 +1168,131 @@ svg {
 .btn-secondary:hover {
   background: rgba(255, 255, 255, 0.09);
   color: var(--text-primary);
+}
+
+/* ── Customize Links Modal Styles ── */
+.modal.modal-wide {
+  max-width: 380px;
+  max-height: 520px;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-subtitle {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 400;
+  margin-top: 1px;
+}
+
+.modal-scrollable {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 120px;
+  max-height: 380px;
+}
+
+.links-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.links-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.links-edit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.link-edit-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  transition: var(--transition);
+}
+
+.link-edit-row:focus-within {
+  border-color: var(--accent-border);
+  background: var(--bg-hover);
+}
+
+.link-edit-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.link-title-input {
+  font-size: 11.5px;
+  font-weight: 500;
+  padding: 4px 8px;
+  height: 25px;
+}
+
+.link-url-input {
+  font-size: 10.5px;
+  padding: 4px 8px;
+  height: 25px;
+  color: #93c5fd;
+}
+
+.link-edit-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+}
+
+.link-pin-btn,
+.link-remove-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: var(--transition);
+  padding: 0;
+}
+
+.link-pin-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.link-pin-btn.active {
+  background: var(--accent-subtle);
+  border-color: var(--accent-border);
+  color: #a5b4fc;
+}
+
+.link-remove-btn:hover {
+  background: var(--danger-subtle);
+  border-color: var(--danger-border);
+  color: #fca5a5;
 }
 
 /* ── Toast ── */

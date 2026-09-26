@@ -162,6 +162,49 @@
         </div>
       </div>
 
+      <!-- Rename Modal -->
+      <div class="modal" id="modal-rename">
+        <div class="modal-header">
+          <h2 class="modal-title" id="modal-rename-title">Rename</h2>
+          <button class="modal-close" id="modal-rename-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <label class="form-label" id="modal-rename-label">New Name</label>
+          <input class="form-input" id="modal-rename-input" type="text" placeholder="Enter name" />
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" id="modal-rename-cancel">Cancel</button>
+          <button class="btn-primary" id="modal-rename-confirm">Save</button>
+        </div>
+      </div>
+
+      <!-- Customize Links Modal -->
+      <div class="modal modal-wide" id="modal-customize-links">
+        <div class="modal-header">
+          <div>
+            <h2 class="modal-title">Customize Links</h2>
+            <span class="modal-subtitle" id="customize-links-subtitle">Edit session tabs</span>
+          </div>
+          <button class="modal-close" id="modal-links-close">✕</button>
+        </div>
+        <div class="modal-body modal-scrollable">
+          <div class="links-toolbar">
+            <span class="links-count" id="customize-links-count">0 links</span>
+            <button class="pill-btn accent" id="btn-add-link">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Add Link
+            </button>
+          </div>
+          <div class="links-edit-list" id="links-edit-list">
+            <!-- Dynamically populated link rows -->
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" id="modal-links-cancel">Cancel</button>
+          <button class="btn-primary" id="modal-links-save">Save Changes</button>
+        </div>
+      </div>
+
     </div>
 
     <!-- ── Toast ── -->
