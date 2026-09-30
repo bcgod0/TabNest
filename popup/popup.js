@@ -11,6 +11,10 @@ let allHistory = [];
 let sessionOpenTabs = {}; // Map of sessionId -> array of { tabId, tabIndex, originalUrl }
 let selectMode = false;
 let selectedTabIds = new Set(); // Set of tab IDs (numbers)
+let activeSessionModalId = null;
+let activeSessionModalIndices = new Set();
+let sessionModalSearchQuery = '';
+let isDraggingItem = false;
 
 // ── DOM References ─────────────────────────────────────────────────────────────
 const $ = (id) => document.getElementById(id);
@@ -96,6 +100,17 @@ function bindEvents() {
   $('modal-links-cancel').addEventListener('click', closeModal);
   $('modal-links-save').addEventListener('click', confirmCustomizeLinks);
   $('btn-add-link').addEventListener('click', addCustomizeLinkRow);
+
+  // Modals – Session Tabs (Select Specific Tabs)
+  $('modal-session-tabs-close')?.addEventListener('click', closeModal);
+  $('modal-session-tabs-cancel')?.addEventListener('click', closeModal);
+  $('btn-session-open-selected')?.addEventListener('click', confirmOpenSelectedSessionTabs);
+  $('btn-session-select-all')?.addEventListener('click', selectAllSessionTabs);
+  $('btn-session-deselect-all')?.addEventListener('click', deselectAllSessionTabs);
+  $('session-tabs-search')?.addEventListener('input', (e) => {
+    sessionModalSearchQuery = e.target.value;
+    renderSessionTabsModalRows();
+  });
 
   modalOverlay.addEventListener('click', (e) => {
     if (e.target === modalOverlay) closeModal();
@@ -514,10 +529,10 @@ function renderSessions() {
       : '';
 
     return `
-      <div class="session-card" data-session-id="${s.id}" data-id="${s.id}">
+      <div class="session-card" data-session-id="${s.id}" data-id="${s.id}" title="Click session to select and open specific tabs">
         <div class="session-card-header">
           <div class="session-title-group">
-            <span class="session-name" title="${escapeHtml(s.name)}">${escapeHtml(s.name)}</span>
+            <span class="session-name" title="${escapeHtml(s.name)} – Click to view tabs">${escapeHtml(s.name)}</span>
             <button class="card-icon-btn" data-action="rename-session" data-id="${s.id}" title="Rename session">
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
             </button>
@@ -535,11 +550,11 @@ function renderSessions() {
         <div class="session-favicon-strip">${favicons}</div>
         <div class="session-card-footer">
           <div class="session-meta">
-            <span class="session-badge">${s.tabs?.length || 0} tabs</span>
+            <span class="session-badge" title="Click to view all ${s.tabs?.length || 0} tabs">${s.tabs?.length || 0} tabs</span>
             <span class="session-date">${formatDate(s.savedAt)}</span>
           </div>
           <div class="session-actions" style="opacity:1">
-            <button class="session-open-btn" data-action="open-session" data-id="${s.id}" title="Open tabs in this window">
+            <button class="session-open-btn" data-action="open-session" data-id="${s.id}" title="Open all tabs in this window">
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
               Open
             </button>
@@ -589,6 +604,18 @@ function renderSessions() {
       updateCounts();
       renderSessions();
       showToast('Session deleted');
+    });
+  });
+
+  // Clicking a session card opens the popup displaying all tabs in the session to select & open specific tabs
+  document.querySelectorAll('.session-card').forEach((card) => {
+    card.addEventListener('click', (e) => {
+      if (isDraggingItem) return;
+      if (e.target.closest('button, .card-icon-btn, .drag-handle, .session-actions')) return;
+      const sessionId = card.dataset.sessionId || card.dataset.id;
+      if (sessionId) {
+        openSessionTabsModal(sessionId);
+      }
     });
   });
 
@@ -912,6 +939,170 @@ async function confirmCustomizeLinks() {
   closeModal();
 }
 
+// ── Session Tabs Modal (Select & Open Specific Tabs) Controller ──────────────
+function openSessionTabsModal(id) {
+  const session = allSessions.find((s) => s.id === id);
+  if (!session) return;
+
+  activeSessionModalId = id;
+  activeSessionModalIndices = new Set();
+  sessionModalSearchQuery = '';
+
+  const titleEl = $('session-tabs-title');
+  const subtitleEl = $('session-tabs-subtitle');
+  const searchWrap = $('session-tabs-search-wrap');
+  const searchInput = $('session-tabs-search');
+
+  if (titleEl) titleEl.textContent = session.name || 'Untitled Session';
+  if (subtitleEl) {
+    const count = session.tabs?.length || 0;
+    subtitleEl.textContent = `${count} saved tab${count !== 1 ? 's' : ''} · Select tabs to open`;
+  }
+
+  if (searchInput) searchInput.value = '';
+  if (searchWrap) {
+    searchWrap.style.display = (session.tabs?.length || 0) > 3 ? 'block' : 'none';
+  }
+
+  renderSessionTabsModalRows();
+  showModal('modal-session-tabs');
+}
+
+function renderSessionTabsModalRows() {
+  const session = allSessions.find((s) => s.id === activeSessionModalId);
+  const container = $('session-tabs-list');
+  const countEl = $('session-tabs-count');
+  const openBtn = $('btn-session-open-selected');
+  const openLabel = $('btn-session-open-selected-label');
+  if (!session || !container) return;
+
+  const tabs = session.tabs || [];
+  const openUrls = getOpenUrlSet();
+
+  const query = sessionModalSearchQuery.trim().toLowerCase();
+  const visibleItems = tabs
+    .map((tab, idx) => ({ tab, idx }))
+    .filter(({ tab }) => {
+      if (!query) return true;
+      const title = (tab.title || '').toLowerCase();
+      const url = (tab.url || '').toLowerCase();
+      return title.includes(query) || url.includes(query);
+    });
+
+  const selectedCount = activeSessionModalIndices.size;
+  const totalCount = tabs.length;
+
+  if (countEl) {
+    countEl.textContent = `${selectedCount} of ${totalCount} selected`;
+  }
+
+  if (openBtn) {
+    openBtn.disabled = selectedCount === 0;
+  }
+  if (openLabel) {
+    openLabel.textContent = selectedCount > 0 ? `Open Selected (${selectedCount})` : 'Open Selected';
+  }
+
+  if (!tabs.length) {
+    container.innerHTML = `
+      <div style="text-align:center;padding:24px 10px;color:var(--text-muted);font-size:12px">
+        No tabs saved in this session.
+      </div>`;
+    return;
+  }
+
+  if (!visibleItems.length) {
+    container.innerHTML = `
+      <div style="text-align:center;padding:20px 10px;color:var(--text-muted);font-size:12px">
+        No tabs match "${escapeHtml(sessionModalSearchQuery)}"
+      </div>`;
+    return;
+  }
+
+  container.innerHTML = visibleItems.map(({ tab, idx }) => {
+    const isSelected = activeSessionModalIndices.has(idx);
+    const domain = getDomain(tab.url);
+    const furl = tab.favIconUrl && !tab.favIconUrl.startsWith('chrome://') ? tab.favIconUrl : null;
+    const faviconHtml = furl
+      ? `<img class="tab-favicon" src="${escapeHtml(furl)}" onerror="this.style.display='none'" />`
+      : `<div class="tab-favicon-fallback" style="width:14px;height:14px"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" opacity="0.5"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></div>`;
+
+    const isAlreadyOpen = tab.url && openUrls.has(tab.url);
+    const openBadge = isAlreadyOpen
+      ? `<span class="session-open-indicator" style="font-size:9px;padding:1px 5px;" title="This tab is currently open in a window">Open</span>`
+      : '';
+
+    return `
+      <div class="session-tab-row ${isSelected ? 'selected' : ''}" data-idx="${idx}" title="${escapeHtml(tab.url || '')}">
+        <div class="tab-checkbox ${isSelected ? 'checked' : ''}" data-chk-idx="${idx}"></div>
+        ${tab.pinned ? '<div class="tab-pin-dot" title="Pinned tab"></div>' : ''}
+        ${faviconHtml}
+        <div class="tab-info">
+          <div class="tab-title" title="${escapeHtml(tab.title || tab.url || '')}">${escapeHtml(tab.title || 'Untitled')}</div>
+          <div class="tab-url">${escapeHtml(domain)}</div>
+        </div>
+        ${openBadge}
+        <button class="card-icon-btn quick-open-tab-btn" data-action="quick-open-tab" data-idx="${idx}" title="Open this tab now">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        </button>
+      </div>`;
+  }).join('');
+
+  container.querySelectorAll('.session-tab-row').forEach((row) => {
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('[data-action="quick-open-tab"]')) return;
+      const idx = parseInt(row.dataset.idx, 10);
+      toggleSessionTabSelection(idx);
+    });
+  });
+
+  container.querySelectorAll('[data-action="quick-open-tab"]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const idx = parseInt(btn.dataset.idx, 10);
+      openSpecificSessionTabs(activeSessionModalId, [idx]);
+    });
+  });
+}
+
+function toggleSessionTabSelection(idx) {
+  if (activeSessionModalIndices.has(idx)) {
+    activeSessionModalIndices.delete(idx);
+  } else {
+    activeSessionModalIndices.add(idx);
+  }
+  renderSessionTabsModalRows();
+}
+
+function selectAllSessionTabs() {
+  const session = allSessions.find((s) => s.id === activeSessionModalId);
+  if (!session?.tabs) return;
+  const query = sessionModalSearchQuery.trim().toLowerCase();
+  session.tabs.forEach((tab, idx) => {
+    if (!query) {
+      activeSessionModalIndices.add(idx);
+    } else {
+      const title = (tab.title || '').toLowerCase();
+      const url = (tab.url || '').toLowerCase();
+      if (title.includes(query) || url.includes(query)) {
+        activeSessionModalIndices.add(idx);
+      }
+    }
+  });
+  renderSessionTabsModalRows();
+}
+
+function deselectAllSessionTabs() {
+  activeSessionModalIndices.clear();
+  renderSessionTabsModalRows();
+}
+
+async function confirmOpenSelectedSessionTabs() {
+  if (!activeSessionModalId || activeSessionModalIndices.size === 0) return;
+  const indices = Array.from(activeSessionModalIndices).sort((a, b) => a - b);
+  await openSpecificSessionTabs(activeSessionModalId, indices);
+}
+
 // ── Generic Drag and Drop Reorder Controller ──────────────────────────────────
 function setupDragAndDrop(containerEl, itemsSelector, handleSelector, onReorder) {
   let draggedEl = null;
@@ -930,6 +1121,7 @@ function setupDragAndDrop(containerEl, itemsSelector, handleSelector, onReorder)
     });
 
     item.addEventListener('dragstart', (e) => {
+      isDraggingItem = true;
       draggedEl = item;
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', item.dataset.id || '');
@@ -943,6 +1135,7 @@ function setupDragAndDrop(containerEl, itemsSelector, handleSelector, onReorder)
         el.classList.remove('drag-over-top', 'drag-over-bottom');
       });
       draggedEl = null;
+      setTimeout(() => { isDraggingItem = false; }, 100);
     });
 
     item.addEventListener('dragover', (e) => {
@@ -1117,6 +1310,81 @@ async function openSessionInCurrentWindow(id) {
   sessionOpenTabs = currentSessionOpenTabs;
 
   showToast(`Opened ${session.tabs.length} tab${session.tabs.length !== 1 ? 's' : ''} ✓`);
+  await loadAll();
+  renderSessions();
+}
+
+// Open selected session tabs in the CURRENT window
+async function openSpecificSessionTabs(id, indices) {
+  const session = allSessions.find((s) => s.id === id);
+  if (!session?.tabs?.length || !indices?.length) return;
+
+  let currentWindowId;
+  try {
+    const win = await chrome.windows.getCurrent();
+    currentWindowId = win?.id;
+  } catch (e) {}
+  if (!currentWindowId) {
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    currentWindowId = activeTab?.windowId;
+  }
+
+  const selectedItems = indices
+    .map((idx) => ({ tab: session.tabs[idx], index: idx }))
+    .filter((item) => item.tab && item.tab.url);
+
+  if (!selectedItems.length) return;
+
+  // Pre-seed tabNestRestores with saved scroll/video state
+  const { tabNestRestores = {} } = await chrome.storage.local.get('tabNestRestores');
+  for (const item of selectedItems) {
+    const t = item.tab;
+    if (t.url && (t.scrollY > 20 || t.videoTime > 1)) {
+      const rawKey = t.url.split('#')[0];
+      const normKey = rawKey.replace(/\/+$/, '');
+      const stateObj = {
+        scrollX: t.scrollX || 0,
+        scrollY: t.scrollY || 0,
+        videoTime: t.videoTime || 0,
+        savedAt: Date.now(),
+      };
+      tabNestRestores[rawKey] = stateObj;
+      tabNestRestores[normKey] = stateObj;
+    }
+  }
+  await chrome.storage.local.set({ tabNestRestores });
+
+  // Pinned tabs must be created before unpinned ones (Chrome requirement)
+  const sortedWithIndex = [...selectedItems]
+    .sort((a, b) => (b.tab.pinned ? 1 : 0) - (a.tab.pinned ? 1 : 0));
+
+  const trackedTabs = [];
+  for (const item of sortedWithIndex) {
+    if (item.tab.url) {
+      const createdTab = await chrome.tabs.create({
+        url: item.tab.url,
+        windowId: currentWindowId,
+        active: false,
+        pinned: !!item.tab.pinned,
+      });
+      trackedTabs.push({
+        tabId: createdTab.id,
+        tabIndex: item.index,
+        originalUrl: item.tab.url,
+      });
+    }
+  }
+
+  // Update sessionOpenTabs in storage
+  const stored = await chrome.storage.local.get('sessionOpenTabs');
+  const currentSessionOpenTabs = stored.sessionOpenTabs || {};
+  const prevTracked = currentSessionOpenTabs[id] || [];
+  currentSessionOpenTabs[id] = [...prevTracked, ...trackedTabs];
+  await chrome.storage.local.set({ sessionOpenTabs: currentSessionOpenTabs });
+  sessionOpenTabs = currentSessionOpenTabs;
+
+  closeModal();
+  showToast(`Opened ${trackedTabs.length} selected tab${trackedTabs.length !== 1 ? 's' : ''} ✓`);
   await loadAll();
   renderSessions();
 }
@@ -1517,6 +1785,9 @@ function closeModal() {
   pendingSessionTabs = null;
   activeRenameTarget = null;
   activeCustomizeTarget = null;
+  activeSessionModalId = null;
+  activeSessionModalIndices.clear();
+  sessionModalSearchQuery = '';
 }
 
 // ── Toast ─────────────────────────────────────────────────────────────────────

@@ -126,7 +126,7 @@
           </div>
         </div>
 
-        <div class="sessions-hint">Click <b>Open</b> to open tabs here · <b>Close</b> to close them</div>
+        <div class="sessions-hint">Click session to select tabs · <b>Open</b> opens all · <b>Close</b> closes them</div>
         <div class="sessions-list" id="sessions-list">
           <div class="empty-state" id="sessions-empty">
             <div class="empty-icon">
@@ -232,6 +232,39 @@
         <div class="modal-footer">
           <button class="btn-secondary" id="modal-links-cancel">Cancel</button>
           <button class="btn-primary" id="modal-links-save">Save Changes</button>
+        </div>
+      </div>
+
+      <!-- Session Tabs Modal (Select & Open Specific Tabs) -->
+      <div class="modal modal-wide" id="modal-session-tabs">
+        <div class="modal-header">
+          <div style="min-width:0;flex:1">
+            <h2 class="modal-title" id="session-tabs-title">Session Tabs</h2>
+            <span class="modal-subtitle" id="session-tabs-subtitle">Select tabs to open</span>
+          </div>
+          <button class="modal-close" id="modal-session-tabs-close">✕</button>
+        </div>
+        <div class="modal-body modal-scrollable">
+          <div class="session-tabs-toolbar">
+            <span class="session-tabs-count" id="session-tabs-count">0 of 0 selected</span>
+            <div class="session-tabs-actions">
+              <button type="button" class="pill-btn" id="btn-session-select-all">Select All</button>
+              <button type="button" class="pill-btn" id="btn-session-deselect-all">Deselect All</button>
+            </div>
+          </div>
+          <div class="session-tabs-search-wrap" id="session-tabs-search-wrap" style="display:none">
+            <input type="text" class="form-input session-tabs-search-input" id="session-tabs-search" placeholder="Filter session tabs..." />
+          </div>
+          <div class="session-tabs-list" id="session-tabs-list">
+            <!-- Dynamically populated tab rows -->
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" id="modal-session-tabs-cancel">Cancel</button>
+          <button class="btn-primary" id="btn-session-open-selected" disabled>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            <span id="btn-session-open-selected-label">Open Selected</span>
+          </button>
         </div>
       </div>
 
